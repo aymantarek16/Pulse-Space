@@ -2,13 +2,14 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { type User as FirebaseUser } from 'firebase/auth';
-import { getCurrentUser, onAuthChange } from '@/lib/firebase/auth';
+import { getCurrentUser, logout as firebaseLogout, onAuthChange } from '@/lib/firebase/auth';
 import { getUserById, createUserProfile } from '@/services/users.service';
 import type { User, AuthState } from '@/types';
 
 interface AuthContextValue extends AuthState {
   firebaseUser: FirebaseUser | null;
   refreshUser: () => Promise<void>;
+  signOutUser: () => Promise<void>;
   authError: string | null;
 }
 
@@ -19,6 +20,7 @@ const AuthContext = createContext<AuthContextValue>({
   initialized: false,
   authError: null,
   refreshUser: async () => {},
+  signOutUser: async () => {},
 });
 
 const AUTH_LOAD_TIMEOUT_MS = 5000;
@@ -88,6 +90,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const signOutUser = async () => {
+    setAuthError(null);
+    await firebaseLogout();
+    setUser(null);
+    setFirebaseUser(null);
+    setLoading(false);
+    setInitialized(true);
+  };
+
   useEffect(() => {
     let settled = false;
 
@@ -128,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, firebaseUser, loading, initialized, authError, refreshUser }}
+      value={{ user, firebaseUser, loading, initialized, authError, refreshUser, signOutUser }}
     >
       {children}
     </AuthContext.Provider>

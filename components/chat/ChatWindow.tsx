@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowLeft,
   ArrowRight,
@@ -9,9 +10,12 @@ import {
   BellOff,
   Check,
   Copy,
+  Forward,
+  Loader2,
   MoreVertical,
   Phone,
   Search,
+  Trash2,
   User as UserIcon,
   Users,
   Video,
@@ -19,14 +23,20 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useMessages } from '@/hooks/useChat';
+import { useConversations, useMessages } from '@/hooks/useChat';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useActivity } from '@/contexts/ActivityContext';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { Avatar } from '@/components/ui/Avatar';
 import { useVoiceCall } from '@/components/calls/VoiceCallProvider';
+import {
+  deleteMessagesForEveryone,
+  deleteMessagesForMe,
+  forwardMessages,
+} from '@/services/messages.service';
 import { cn } from '@/lib/utils';
-import type { Conversation } from '@/types';
+import type { Conversation, Message } from '@/types';
 
 interface ChatWindowProps {
   conversation: Conversation;
@@ -71,16 +81,32 @@ function formatDateSeparator(ts: any, locale: string): string {
 export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
   const { dir, locale } = useLanguage();
   const { startCall, phase: callPhase } = useVoiceCall();
-  const { messages, loading, send, sendMedia, sendSticker, bottomRef } = useMessages(
-    conversation.id,
-    currentUserId
+  const {
+    setActiveConversationId,
+    markConversationRead: markActiveConversationRead,
+  } = useActivity();
+  const lastMessageId = conversation.lastMessage?.id ?? null;
+  const handleConversationRead = useCallback(
+    (conversationId: string) => markActiveConversationRead(conversationId, lastMessageId),
+    [lastMessageId, markActiveConversationRead]
   );
+  const { messages, loading, send, sendMedia, sendSticker, hideMessagesLocally, bottomRef } = useMessages(
+    conversation.id,
+    currentUserId,
+    handleConversationRead
+  );
+  const { conversations: forwardConversations } = useConversations(currentUserId);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 72, left: 12, width: 288 });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [copied, setCopied] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [forwardOpen, setForwardOpen] = useState(false);
   const BackIcon = dir === 'rtl' ? ArrowRight : ArrowLeft;
 
   const isGroup = conversation.type === 'group';
@@ -92,15 +118,74 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
   const convUsername = isGroup ? null : otherUser?.username;
   const showOnlineStatus = otherUser?.privacySettings?.showOnlineStatus !== false;
   const canStartCall = !isGroup && !!otherUser && callPhase === 'idle';
+  const selectionMode = selectedMessageIds.size > 0;
+  const selectedMessages = messages.filter((message) => selectedMessageIds.has(message.id));
+  const selectedIds = selectedMessages.map((message) => message.id);
+  const canDeleteSelectedForEveryone =
+    selectedMessages.length > 0 &&
+    selectedMessages.every((message) => message.senderId === currentUserId && !message.deletedForAll);
+  const forwardTargets = forwardConversations.filter((item) => item.id !== conversation.id);
+
+  const toggleMessageSelection = useCallback((message: Message) => {
+    if (message.optimistic || message.deletedForAll) return;
+    setSelectedMessageIds((current) => {
+      const next = new Set(current);
+      if (next.has(message.id)) next.delete(message.id);
+      else next.add(message.id);
+      return next;
+    });
+  }, []);
+
+  const startMessageSelection = useCallback((message: Message) => {
+    if (message.optimistic || message.deletedForAll) return;
+    setSelectedMessageIds(new Set([message.id]));
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedMessageIds(new Set());
+    setForwardOpen(false);
+  }, []);
 
   useEffect(() => {
-    const handlePointerDown = (event: MouseEvent) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      setMenuOpen(false);
+    setActiveConversationId(conversation.id);
+    return () => setActiveConversationId(null);
+  }, [conversation.id, setActiveConversationId]);
+
+  const positionMenu = useCallback(() => {
+    const rect = menuButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const width = Math.min(288, window.innerWidth - 24);
+    const rawLeft = dir === 'rtl' ? rect.left : rect.right - width;
+    const left = Math.min(Math.max(rawLeft, 12), window.innerWidth - width - 12);
+    const top = Math.min(rect.bottom + 10, Math.max(12, window.innerHeight - 320));
+
+    setMenuPosition({ top, left, width });
+  }, [dir]);
+
+  const toggleMenu = () => {
+    if (!menuOpen) positionMenu();
+    setMenuOpen((open) => !open);
+  };
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
     };
-    document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, []);
+    const handleReposition = () => positionMenu();
+
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuOpen, positionMenu]);
 
   useEffect(() => {
     try {
@@ -128,6 +213,287 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
     } catch {}
   };
 
+  const deleteForMe = useCallback(
+    async (items: Message[]) => {
+      const ids = items.map((message) => message.id).filter(Boolean);
+      if (!ids.length || bulkBusy) return;
+
+      setBulkBusy(true);
+      hideMessagesLocally(ids);
+      setSelectedMessageIds(new Set());
+      try {
+        await deleteMessagesForMe(ids, currentUserId);
+      } catch (error) {
+        console.error('Could not delete selected messages for me:', error);
+      } finally {
+        setBulkBusy(false);
+      }
+    },
+    [bulkBusy, currentUserId, hideMessagesLocally]
+  );
+
+  const deleteForEveryone = useCallback(
+    async (items: Message[]) => {
+      const ids = items
+        .filter((message) => message.senderId === currentUserId && !message.deletedForAll)
+        .map((message) => message.id)
+        .filter(Boolean);
+      if (!ids.length || bulkBusy) return;
+
+      setBulkBusy(true);
+      hideMessagesLocally(ids);
+      setSelectedMessageIds(new Set());
+      try {
+        await deleteMessagesForEveryone(ids, currentUserId);
+      } catch (error) {
+        console.error('Could not delete selected messages for everyone:', error);
+      } finally {
+        setBulkBusy(false);
+      }
+    },
+    [bulkBusy, currentUserId, hideMessagesLocally]
+  );
+
+  const openForwardForMessages = useCallback((items: Message[]) => {
+    const ids = items
+      .filter((message) => !message.optimistic && !message.deletedForAll)
+      .map((message) => message.id);
+    if (!ids.length) return;
+    setSelectedMessageIds(new Set(ids));
+    setForwardOpen(true);
+  }, []);
+
+  const forwardSelectedTo = async (targetConversationId: string) => {
+    if (!selectedIds.length || bulkBusy) return;
+
+    setBulkBusy(true);
+    try {
+      await forwardMessages(selectedIds, targetConversationId, currentUserId);
+      clearSelection();
+    } catch (error) {
+      console.error('Could not forward selected messages:', error);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const getConversationName = (item: Conversation) => {
+    if (item.type === 'group') return item.name || (dir === 'rtl' ? 'مجموعة' : 'Group');
+    return item.participants?.[0]?.displayName || (dir === 'rtl' ? 'محادثة' : 'Conversation');
+  };
+
+  const getConversationSubtitle = (item: Conversation) => {
+    if (item.type === 'group') {
+      return `${item.participantIds.length} ${dir === 'rtl' ? 'أعضاء' : 'members'}`;
+    }
+    const username = item.participants?.[0]?.username;
+    return username ? `@${username}` : (dir === 'rtl' ? 'رسائل خاصة' : 'Direct messages');
+  };
+
+  const menuActionClass =
+    'flex w-full items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.035] px-3 py-3 text-start text-sm font-medium text-pulse-text-muted shadow-inner shadow-black/10 transition-all hover:border-pulse-accent/25 hover:bg-pulse-accent/[0.10] hover:text-pulse-text';
+
+  const renderMenuActions = () => (
+    <>
+      {convUsername && (
+        <Link
+          href={`/profile/${convUsername}`}
+          onClick={() => setMenuOpen(false)}
+          className={menuActionClass}
+        >
+          <UserIcon className="h-4 w-4" />
+          {dir === 'rtl' ? 'عرض الملف الشخصي' : 'View profile'}
+        </Link>
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          setSearchOpen(true);
+          setMenuOpen(false);
+        }}
+        className={menuActionClass}
+      >
+        <Search className="h-4 w-4" />
+        {dir === 'rtl' ? 'بحث في الرسائل' : 'Search messages'}
+      </button>
+      <button
+        type="button"
+        onClick={copyConversationName}
+        className={menuActionClass}
+      >
+        {copied ? <Check className="h-4 w-4 text-emerald-300" /> : <Copy className="h-4 w-4" />}
+        {copied
+          ? (dir === 'rtl' ? 'تم النسخ' : 'Copied')
+          : (dir === 'rtl' ? 'نسخ الاسم' : 'Copy name')}
+      </button>
+      <button
+        type="button"
+        onClick={toggleMute}
+        className={menuActionClass}
+      >
+        {muted ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+        {muted
+          ? (dir === 'rtl' ? 'إلغاء كتم المحادثة' : 'Unmute chat')
+          : (dir === 'rtl' ? 'كتم المحادثة' : 'Mute chat')}
+      </button>
+    </>
+  );
+
+  const menuPortal = typeof document === 'undefined'
+    ? null
+    : createPortal(
+      <AnimatePresence>
+        {menuOpen && (
+          <>
+            <motion.button
+              type="button"
+              aria-label={dir === 'rtl' ? '\u0625\u063a\u0644\u0627\u0642' : 'Close'}
+              className="fixed inset-0 z-[9998] bg-black/35 backdrop-blur-[2px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMenuOpen(false)}
+            />
+            <motion.div
+              role="menu"
+              dir={dir}
+              className="fixed z-[9999] overflow-hidden rounded-3xl border border-pulse-accent/20 bg-[#07111f]/95 p-3 shadow-[0_24px_80px_rgba(0,0,0,0.58)] backdrop-blur-2xl"
+              style={{
+                top: menuPosition.top,
+                left: menuPosition.left,
+                width: menuPosition.width,
+                maxWidth: 'calc(100vw - 24px)',
+              }}
+              initial={{ opacity: 0, y: -8, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -6, scale: 0.96 }}
+              transition={{ duration: 0.16 }}
+            >
+              <div className="mb-3 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+                {isGroup ? (
+                  <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-pulse-accent/20 bg-pulse-accent/10 text-pulse-accent">
+                    <Users className="h-5 w-5" />
+                  </span>
+                ) : (
+                  <Avatar src={convAvatar} name={convName || ''} size="sm" online={showOnlineStatus} />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-bold text-pulse-text">{convName}</p>
+                  <p className="truncate text-xs text-pulse-text-muted">
+                    {dir === 'rtl' ? '\u0625\u062c\u0631\u0627\u0621\u0627\u062a \u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0629' : 'Chat actions'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-pulse-text-muted transition-colors hover:bg-white/10 hover:text-pulse-text"
+                  aria-label={dir === 'rtl' ? '\u0625\u063a\u0644\u0627\u0642' : 'Close'}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid gap-1.5">
+                {renderMenuActions()}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>,
+      document.body
+    );
+
+  const forwardPortal = typeof document === 'undefined'
+    ? null
+    : createPortal(
+      <AnimatePresence>
+        {forwardOpen && (
+          <>
+            <motion.button
+              type="button"
+              aria-label={dir === 'rtl' ? 'إغلاق' : 'Close'}
+              className="fixed inset-0 z-[9998] bg-black/40 backdrop-blur-[2px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setForwardOpen(false)}
+            />
+            <motion.div
+              role="dialog"
+              dir={dir}
+              className="fixed inset-x-3 bottom-4 z-[9999] mx-auto max-h-[76vh] max-w-md overflow-hidden rounded-3xl border border-pulse-accent/20 bg-[#07111f]/95 p-3 shadow-[0_24px_90px_rgba(0,0,0,0.62)] backdrop-blur-2xl sm:bottom-auto sm:left-1/2 sm:right-auto sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2"
+              initial={{ opacity: 0, y: 18, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.96 }}
+              transition={{ duration: 0.16 }}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-pulse-text">
+                    {dir === 'rtl' ? 'إعادة توجيه الرسائل' : 'Forward messages'}
+                  </p>
+                  <p className="truncate text-xs text-pulse-text-muted">
+                    {selectedIds.length} {dir === 'rtl' ? 'رسائل محددة' : 'selected messages'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setForwardOpen(false)}
+                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-pulse-text-muted transition-colors hover:bg-white/10 hover:text-pulse-text"
+                  aria-label={dir === 'rtl' ? 'إغلاق' : 'Close'}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="max-h-[56vh] space-y-1.5 overflow-y-auto pr-1 scrollbar-hide">
+                {forwardTargets.length === 0 ? (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-6 text-center text-sm text-pulse-text-muted">
+                    {dir === 'rtl' ? 'لا توجد محادثات أخرى للإرسال إليها.' : 'No other conversations available.'}
+                  </div>
+                ) : (
+                  forwardTargets.map((item) => {
+                    const targetUser = item.type === 'direct' ? item.participants?.[0] : undefined;
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => void forwardSelectedTo(item.id)}
+                        disabled={bulkBusy}
+                        className="flex w-full items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.035] px-3 py-3 text-start transition-all hover:border-pulse-accent/25 hover:bg-pulse-accent/[0.10] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {item.type === 'group' ? (
+                          <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border border-pulse-accent/20 bg-pulse-accent/10 text-pulse-accent">
+                            <Users className="h-5 w-5" />
+                          </span>
+                        ) : (
+                          <Avatar src={targetUser?.avatarUrl} name={getConversationName(item)} size="sm" />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-pulse-text">
+                            {getConversationName(item)}
+                          </span>
+                          <span className="block truncate text-xs text-pulse-text-muted">
+                            {getConversationSubtitle(item)}
+                          </span>
+                        </span>
+                        {bulkBusy ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-pulse-accent" />
+                        ) : (
+                          <Forward className="h-4 w-4 text-pulse-text-muted" />
+                        )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>,
+      document.body
+    );
+
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const visibleMessages = normalizedSearch
     ? messages.filter((msg) => msg.content?.toLowerCase().includes(normalizedSearch))
@@ -139,7 +505,12 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
   let lastDate = '';
   grouped.forEach((msg) => {
     try {
-      const d = msg.createdAt?.toDate?.();
+      const d =
+        typeof msg.createdAt?.toDate === 'function'
+          ? msg.createdAt.toDate()
+          : msg.createdAt
+            ? new Date(msg.createdAt)
+            : null;
       const dateStr = d ? d.toDateString() : '';
       if (dateStr && dateStr !== lastDate) {
         withSeparators.push({ type: 'sep', data: { ts: msg.createdAt, key: dateStr } });
@@ -151,8 +522,10 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#07111f]/80" dir={dir}>
+      {menuPortal}
+      {forwardPortal}
       {/* Header */}
-      <div className="flex h-[4.5rem] flex-shrink-0 items-center gap-3 border-b border-white/10 bg-[#07111f]/90 px-3 shadow-lg shadow-black/10 backdrop-blur-xl sm:px-5">
+      <div className="flex h-[4.5rem] flex-shrink-0 items-center gap-2 border-b border-white/10 bg-[#07111f]/90 px-2 shadow-lg shadow-black/10 backdrop-blur-xl sm:gap-3 sm:px-5">
         <Link
           href="/messages"
           className="flex h-10 w-10 items-center justify-center rounded-2xl text-pulse-text-muted transition-colors hover:bg-white/10 hover:text-pulse-text md:hidden"
@@ -205,7 +578,7 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
               if (otherUser) void startCall(conversation.id, otherUser, 'voice');
             }}
             disabled={!canStartCall}
-            className="hidden h-10 w-10 items-center justify-center rounded-2xl text-pulse-text-muted transition-all hover:bg-pulse-accent/10 hover:text-pulse-accent disabled:cursor-not-allowed disabled:opacity-40 sm:flex"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl text-pulse-text-muted transition-all hover:bg-pulse-accent/10 hover:text-pulse-accent disabled:cursor-not-allowed disabled:opacity-40 sm:h-10 sm:w-10"
             title={dir === 'rtl' ? 'مكالمة صوتية' : 'Voice call'}
             aria-label={dir === 'rtl' ? 'مكالمة صوتية' : 'Voice call'}
           >
@@ -217,7 +590,7 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
               if (otherUser) void startCall(conversation.id, otherUser, 'video');
             }}
             disabled={!canStartCall}
-            className="hidden h-10 w-10 items-center justify-center rounded-2xl text-pulse-text-muted transition-all hover:bg-pulse-accent/10 hover:text-pulse-accent disabled:cursor-not-allowed disabled:opacity-40 sm:flex"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl text-pulse-text-muted transition-all hover:bg-pulse-accent/10 hover:text-pulse-accent disabled:cursor-not-allowed disabled:opacity-40 sm:h-10 sm:w-10"
             title={dir === 'rtl' ? 'مكالمة فيديو' : 'Video call'}
             aria-label={dir === 'rtl' ? 'مكالمة فيديو' : 'Video call'}
           >
@@ -225,61 +598,16 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
           </button>
           <div ref={menuRef} className="relative">
             <button
+              ref={menuButtonRef}
               type="button"
-              onClick={() => setMenuOpen((open) => !open)}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl text-pulse-text-muted transition-all hover:bg-white/10 hover:text-pulse-text"
+              onClick={toggleMenu}
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl text-pulse-text-muted transition-all hover:bg-white/10 hover:text-pulse-text sm:h-10 sm:w-10"
               title={dir === 'rtl' ? 'المزيد' : 'More'}
               aria-label={dir === 'rtl' ? 'المزيد' : 'More'}
               aria-expanded={menuOpen}
             >
               <MoreVertical className="w-4 h-4" />
             </button>
-
-            {menuOpen && (
-              <div className="absolute end-0 top-12 z-30 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#0c1827]/95 p-1.5 shadow-2xl shadow-black/30 backdrop-blur-xl">
-                {convUsername && (
-                  <Link
-                    href={`/profile/${convUsername}`}
-                    onClick={() => setMenuOpen(false)}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-start text-sm text-pulse-text-muted transition-colors hover:bg-white/10 hover:text-pulse-text"
-                  >
-                    <UserIcon className="h-4 w-4" />
-                    {dir === 'rtl' ? 'عرض الملف الشخصي' : 'View profile'}
-                  </Link>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchOpen(true);
-                    setMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-start text-sm text-pulse-text-muted transition-colors hover:bg-white/10 hover:text-pulse-text"
-                >
-                  <Search className="h-4 w-4" />
-                  {dir === 'rtl' ? 'بحث في الرسائل' : 'Search messages'}
-                </button>
-                <button
-                  type="button"
-                  onClick={copyConversationName}
-                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-start text-sm text-pulse-text-muted transition-colors hover:bg-white/10 hover:text-pulse-text"
-                >
-                  {copied ? <Check className="h-4 w-4 text-emerald-300" /> : <Copy className="h-4 w-4" />}
-                  {copied
-                    ? (dir === 'rtl' ? 'تم النسخ' : 'Copied')
-                    : (dir === 'rtl' ? 'نسخ الاسم' : 'Copy name')}
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleMute}
-                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-start text-sm text-pulse-text-muted transition-colors hover:bg-white/10 hover:text-pulse-text"
-                >
-                  {muted ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
-                  {muted
-                    ? (dir === 'rtl' ? 'إلغاء كتم المحادثة' : 'Unmute chat')
-                    : (dir === 'rtl' ? 'كتم المحادثة' : 'Mute chat')}
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -310,8 +638,61 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
         </div>
       )}
 
+      {selectionMode && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-pulse-accent/20 bg-[#07111f]/95 px-3 py-2 shadow-lg shadow-black/10 sm:px-5"
+        >
+          <button
+            type="button"
+            onClick={clearSelection}
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-pulse-text-muted transition-colors hover:bg-white/10 hover:text-pulse-text"
+            aria-label={dir === 'rtl' ? 'إلغاء التحديد' : 'Cancel selection'}
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <div className="me-auto min-w-0">
+            <p className="text-sm font-bold text-pulse-text">
+              {selectedIds.length} {dir === 'rtl' ? 'رسائل محددة' : 'selected messages'}
+            </p>
+            <p className="text-xs text-pulse-text-muted">
+              {dir === 'rtl' ? 'اختر إجراء للرسائل المحددة' : 'Choose an action for selected messages'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void deleteForMe(selectedMessages)}
+            disabled={bulkBusy}
+            className="inline-flex h-9 items-center gap-2 rounded-xl border border-red-400/15 bg-red-500/[0.08] px-3 text-xs font-semibold text-red-200 transition-all hover:bg-red-500/[0.14] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            {dir === 'rtl' ? 'حذف عندي' : 'Delete for me'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void deleteForEveryone(selectedMessages)}
+            disabled={bulkBusy || !canDeleteSelectedForEveryone}
+            className="inline-flex h-9 items-center gap-2 rounded-xl border border-red-400/15 bg-red-500/[0.08] px-3 text-xs font-semibold text-red-200 transition-all hover:bg-red-500/[0.14] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            {dir === 'rtl' ? 'حذف للجميع' : 'Delete everyone'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setForwardOpen(true)}
+            disabled={bulkBusy || selectedIds.length === 0}
+            className="inline-flex h-9 items-center gap-2 rounded-xl border border-pulse-accent/20 bg-pulse-accent/[0.10] px-3 text-xs font-semibold text-pulse-accent transition-all hover:bg-pulse-accent/[0.16] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Forward className="h-3.5 w-3.5" />
+            {dir === 'rtl' ? 'إعادة توجيه' : 'Forward'}
+          </button>
+        </motion.div>
+      )}
+
       {/* Messages */}
-      <div className="min-h-0 flex-1 overflow-y-auto bg-[#081321] px-3 py-4 scrollbar-hide sm:px-5">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-[#081321] px-3 pb-8 pt-4 scrollbar-hide sm:px-5 sm:pb-6">
         {loading ? (
           <div className="flex flex-col gap-3">
             {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -379,6 +760,13 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
                   showAvatar={item.data.showAvatar}
                   isFirst={item.data.isFirst}
                   isLast={item.data.isLast}
+                  selectionMode={selectionMode}
+                  selected={selectedMessageIds.has(item.data.id)}
+                  onToggleSelect={toggleMessageSelection}
+                  onStartSelection={startMessageSelection}
+                  onDeleteForMe={(message) => deleteForMe([message])}
+                  onDeleteForEveryone={(message) => deleteForEveryone([message])}
+                  onForward={(message) => openForwardForMessages([message])}
                 />
               )
             )}
@@ -390,7 +778,12 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
 
       {/* Input */}
       <div className="flex-shrink-0">
-        <ChatInput onSend={send} onSendMedia={sendMedia} onSendSticker={sendSticker} />
+        <ChatInput
+          onSend={send}
+          onSendMedia={sendMedia}
+          onSendSticker={sendSticker}
+          disabled={selectionMode || bulkBusy}
+        />
       </div>
     </div>
   );

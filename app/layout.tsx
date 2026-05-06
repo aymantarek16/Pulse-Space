@@ -27,10 +27,10 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: '/favicon.svg', type: 'image/svg+xml' },
-      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/pulse-icon-192.png', sizes: '192x192', type: 'image/png' },
     ],
     shortcut: '/favicon.svg',
-    apple: '/icons/icon-192x192.png',
+    apple: '/icons/pulse-icon-192.png',
   },
   appleWebApp: {
     capable: true,
@@ -127,7 +127,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <link rel="apple-touch-icon" href="/icons/pulse-icon-192.png" />
         <script dangerouslySetInnerHTML={{ __html: browserExtensionErrorFilterScript }} />
         {process.env.NODE_ENV !== 'production' && (
           <script dangerouslySetInnerHTML={{ __html: devServiceWorkerCleanupScript }} />

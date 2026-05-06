@@ -10,7 +10,7 @@ export function getExternalUrl(value?: string | null): string | null {
   if (!trimmed) return null;
 
   if (
-    /^data:(image\/(jpeg|jpg|png|webp|gif)|application\/(pdf|zip|x-zip-compressed|x-rar-compressed|vnd\.rar|x-7z-compressed|msword|vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet|presentationml\.presentation)|octet-stream)|text\/(plain|csv));base64,/i.test(trimmed)
+    /^data:(image\/(jpeg|jpg|png|webp|gif)|audio\/(mpeg|mp3|mp4|ogg|wav|webm|x-m4a)|application\/(pdf|zip|x-zip-compressed|x-rar-compressed|vnd\.rar|x-7z-compressed|msword|vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet|presentationml\.presentation)|octet-stream)|text\/(plain|csv));base64,/i.test(trimmed)
   ) {
     return trimmed;
   }

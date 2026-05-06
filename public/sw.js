@@ -100,8 +100,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || 'PulseSpace', {
       body: data.body,
-      icon: '/icons/icon-192x192.png',
-      badge: '/icons/icon-72x72.png',
+      icon: '/icons/pulse-icon-192.png',
+      badge: '/icons/pulse-icon-72.png',
       data: { url: data.url || '/' },
       vibrate: [200, 100, 200],
     })

@@ -140,6 +140,7 @@ export type MessageReactionEmoji = '👍' | '❤️' | '😂' | '😮' | '😢' 
 
 export interface Message {
   id: string;
+  clientId?: string;
   conversationId: string;
   senderId: string;
   sender?: User;
@@ -149,6 +150,16 @@ export interface Message {
   readBy: string[];
   reactions?: Record<string, MessageReactionEmoji>;
   createdAt: Timestamp;
+  updatedAt?: Timestamp;
+  editedAt?: Timestamp;
+  deletedAt?: Timestamp;
+  deletedFor?: string[];
+  deletedForAll?: boolean;
+  voiceDuration?: number;
+  forwardedFromMessageId?: string;
+  forwardedFromSenderId?: string;
+  optimistic?: boolean;
+  sendFailed?: boolean;
 }
 
 export interface Conversation {

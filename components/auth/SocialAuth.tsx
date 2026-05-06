@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { loginWithGoogle } from '@/lib/firebase/auth';
 import { Button } from '@/components/ui/Button';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface SocialAuthProps {
   label?: string;
@@ -14,6 +15,7 @@ export function SocialAuth({ label, buttonClassName }: SocialAuthProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+  const { dir } = useLanguage();
 
   const handleGoogle = async () => {
     setLoading(true);
@@ -23,8 +25,7 @@ export function SocialAuth({ label, buttonClassName }: SocialAuthProps) {
       await loginWithGoogle();
       router.replace('/');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'فشل تسجيل الدخول';
-      setError(msg);
+      setError(getGoogleLoginErrorMessage(err, dir));
     } finally {
       setLoading(false);
     }
@@ -45,10 +46,26 @@ export function SocialAuth({ label, buttonClassName }: SocialAuthProps) {
       </Button>
 
       {error && (
-        <p className="text-xs text-center text-red-400">⚠ {error}</p>
+        <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-start text-xs leading-5 text-red-300" dir="ltr">
+          {error}
+        </p>
       )}
     </div>
   );
+}
+
+function getGoogleLoginErrorMessage(error: unknown, dir: string) {
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : '';
+  const message = error instanceof Error ? error.message : '';
+
+  if (code === 'auth/unauthorized-domain' || message.includes('auth/unauthorized-domain')) {
+    return 'Firebase Error (auth/unauthorized-domain): add the current Vercel domain pulse-space-rose.vercel.app from Firebase Console > Authentication > Settings > Authorized domains.';
+  }
+
+  return message || (dir === 'rtl' ? 'فشل تسجيل الدخول' : 'Sign-in failed');
 }
 
 function GoogleIcon() {

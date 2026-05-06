@@ -24,7 +24,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/lib/i18n/useTranslation';
-import { logout, resetPassword } from '@/lib/firebase/auth';
+import { resetPassword } from '@/lib/firebase/auth';
 import { updateUserLanguage, updateUserSettings } from '@/services/users.service';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -93,7 +93,7 @@ function ToggleRow({ icon: Icon, title, desc, checked, disabled, onChange }: Tog
 }
 
 export default function SettingsPage() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, signOutUser } = useAuth();
   const { dir, locale, setLocale } = useLanguage();
   const { t } = useTranslation();
   const router = useRouter();
@@ -132,7 +132,7 @@ export default function SettingsPage() {
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
-      await logout();
+      await signOutUser();
       router.replace('/login');
       window.setTimeout(() => {
         if (window.location.pathname !== '/login') {

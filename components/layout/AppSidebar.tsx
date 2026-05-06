@@ -13,7 +13,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useActivity } from '@/contexts/ActivityContext';
-import { logout } from '@/lib/firebase/auth';
 import { Avatar } from '@/components/ui/Avatar';
 
 const navItems = [
@@ -28,7 +27,7 @@ const navItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, signOutUser } = useAuth();
   const { t } = useTranslation();
   const { locale, setLocale, dir } = useLanguage();
   const router = useRouter();
@@ -47,7 +46,7 @@ export function AppSidebar() {
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
-      await logout();
+      await signOutUser();
       router.replace('/login');
       window.setTimeout(() => {
         if (window.location.pathname !== '/login') {
@@ -170,15 +169,17 @@ export function AppSidebar() {
               <p className="text-sm font-semibold text-pulse-text truncate">{user.displayName}</p>
               <p className="text-xs text-pulse-text-muted truncate">@{user.username}</p>
             </div>
-            <button
-              onClick={handleLogout}
-              disabled={loggingOut}
-              className="text-pulse-text-muted hover:text-red-400 transition-colors p-1"
-              title={t.auth.logout}
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
           </div>
+
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 transition-all hover:border-red-500/35 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>{t.auth.logout}</span>
+          </button>
         </div>
       )}
     </aside>

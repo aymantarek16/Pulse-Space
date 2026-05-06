@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, X, Zap } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 const PWA_PROMPT_COUNT_KEY = 'pulsespace:pwaPromptCount';
@@ -113,9 +113,11 @@ export function PWAInstallPrompt() {
       >
         <div className="rounded-2xl bg-pulse-surface border border-white/10 shadow-2xl shadow-black/50 p-4">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pulse-accent to-pulse-accent-dark flex items-center justify-center flex-shrink-0 shadow-lg shadow-pulse-accent/30">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
+            <img
+              src="/icons/pulse-icon-96.png"
+              alt="PulseSpace"
+              className="h-10 w-10 flex-shrink-0 rounded-xl shadow-lg shadow-pulse-accent/20"
+            />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-pulse-text">
                 {dir === 'rtl' ? 'ثبّت PulseSpace' : 'Install PulseSpace'}

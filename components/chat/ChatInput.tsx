@@ -2,7 +2,18 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Paperclip, Image as ImageIcon, X, Loader2, Smile, FileText, Sparkles } from 'lucide-react';
+import {
+  Send,
+  Paperclip,
+  Image as ImageIcon,
+  X,
+  Loader2,
+  Smile,
+  FileText,
+  Sparkles,
+  Mic,
+  Square,
+} from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import {
@@ -18,8 +29,9 @@ interface ChatInputProps {
   onSend: (text: string) => Promise<void>;
   onSendMedia: (
     url: string,
-    type: Extract<MessageType, 'image' | 'file'>,
-    content?: string
+    type: Extract<MessageType, 'image' | 'file' | 'audio'>,
+    content?: string,
+    options?: { voiceDuration?: number }
   ) => Promise<void>;
   onSendSticker: (sticker: string) => Promise<void>;
   disabled?: boolean;
@@ -104,12 +116,41 @@ const FILE_ACCEPT =
   '.pdf,.zip,.rar,.7z,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,application/pdf,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/vnd.rar,application/x-7z-compressed,text/plain,text/csv';
 const UPLOAD_TIMEOUT_MS = 15000;
 const UPLOAD_STALL_TIMEOUT_MS = 8000;
+const VOICE_UPLOAD_TIMEOUT_MS = 120000;
+const VOICE_MAX_SECONDS = 10 * 60;
 const INLINE_ATTACHMENT_MAX_DATA_URL_LENGTH = 750000;
 
 function formatFileSize(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDuration(seconds: number) {
+  const safeSeconds = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
+}
+
+function getAudioMimeType() {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+    'audio/wav',
+  ];
+
+  return types.find((type) => MediaRecorder.isTypeSupported(type)) || '';
+}
+
+function getAudioExtension(mimeType: string) {
+  if (mimeType.includes('mp4')) return 'm4a';
+  if (mimeType.includes('ogg')) return 'ogg';
+  if (mimeType.includes('wav')) return 'wav';
+  return 'webm';
 }
 
 function getFileLabel(file: File, type: Extract<MessageType, 'image' | 'file'>) {
@@ -172,6 +213,8 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [mediaType, setMediaType] = useState<Extract<MessageType, 'image' | 'file'>>('image');
+  const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -179,6 +222,12 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingStartedAtRef = useRef(0);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const discardRecordingRef = useRef(false);
 
   useEffect(() => {
     if (!emojiOpen) return;
@@ -233,6 +282,22 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
     };
   }, [mediaOpen]);
 
+  useEffect(() => {
+    return () => {
+      discardRecordingRef.current = true;
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      if (recorderRef.current?.state === 'recording') {
+        recorderRef.current.onstop = null;
+        recorderRef.current.stop();
+      }
+      recorderRef.current = null;
+      audioChunksRef.current = [];
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
   const clearMedia = () => {
     setMediaFile(null);
     setMediaError(null);
@@ -266,10 +331,183 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
     setMediaOpen(false);
   };
 
+  const clearRecordingTimer = () => {
+    if (!recordingTimerRef.current) return;
+    clearInterval(recordingTimerRef.current);
+    recordingTimerRef.current = null;
+  };
+
+  const cleanupRecordingStream = () => {
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    recordingStreamRef.current = null;
+  };
+
+  const uploadVoiceMessage = async (file: File, duration: number) => {
+    if (!user) return;
+    setSending(true);
+    setUploadProgress(0);
+
+    try {
+      let uploadedUrl: string;
+      try {
+        uploadedUrl = await uploadFile(file, `uploads/${user.uid}/messages/voice`, {
+          timeoutMs: VOICE_UPLOAD_TIMEOUT_MS,
+          stallTimeoutMs: UPLOAD_STALL_TIMEOUT_MS,
+          maxAttempts: 1,
+          onProgress: setUploadProgress,
+        });
+      } catch (storageError) {
+        console.warn('Firebase Storage voice upload failed, using inline fallback:', storageError);
+        setUploadProgress(35);
+        uploadedUrl = await fileToDataUrl(file, {
+          maxDataUrlLength: INLINE_ATTACHMENT_MAX_DATA_URL_LENGTH,
+        });
+        setUploadProgress(100);
+      }
+
+      await onSendMedia(
+        uploadedUrl,
+        'audio',
+        dir === 'rtl' ? 'رسالة صوتية' : 'Voice message',
+        { voiceDuration: duration }
+      );
+    } catch (error) {
+      console.error('Voice message send failed:', error);
+      setMediaError(getSendErrorMessage(error, dir, true));
+    } finally {
+      setUploadProgress(null);
+      setSending(false);
+    }
+  };
+
+  const stopRecording = (discard = false) => {
+    discardRecordingRef.current = discard;
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === 'inactive') {
+      clearRecordingTimer();
+      cleanupRecordingStream();
+      setRecording(false);
+      setRecordingSeconds(0);
+      return;
+    }
+    recorder.stop();
+  };
+
+  const startRecording = async () => {
+    if (disabled || sending || recording || mediaFile || text.trim()) return;
+    if (!user) {
+      setMediaError(dir === 'rtl' ? 'سجل الدخول الأول عشان تقدر تبعت فويس.' : 'Sign in before sending a voice message.');
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setMediaError(dir === 'rtl' ? 'المتصفح لا يدعم تسجيل الصوت.' : 'Your browser does not support voice recording.');
+      return;
+    }
+
+    try {
+      setMediaError(null);
+      setMediaOpen(false);
+      setEmojiOpen(false);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = getAudioMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      recordingStreamRef.current = stream;
+      recorderRef.current = recorder;
+      audioChunksRef.current = [];
+      discardRecordingRef.current = false;
+      recordingStartedAtRef.current = Date.now();
+      setRecordingSeconds(0);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        void (async () => {
+          clearRecordingTimer();
+          cleanupRecordingStream();
+          setRecording(false);
+          recorderRef.current = null;
+
+          if (discardRecordingRef.current) {
+            audioChunksRef.current = [];
+            discardRecordingRef.current = false;
+            setRecordingSeconds(0);
+            return;
+          }
+
+          const duration = Math.min(
+            VOICE_MAX_SECONDS,
+            Math.max(0, Math.round((Date.now() - recordingStartedAtRef.current) / 1000))
+          );
+          const chunks = audioChunksRef.current;
+          audioChunksRef.current = [];
+          setRecordingSeconds(0);
+
+          if (duration < 1 || !chunks.length) {
+            setMediaError(dir === 'rtl' ? 'التسجيل قصير جدًا.' : 'Recording is too short.');
+            return;
+          }
+
+          const blobType = recorder.mimeType || mimeType || 'audio/webm';
+          const blob = new Blob(chunks, { type: blobType });
+          const file = new File(
+            [blob],
+            `voice-${Date.now()}.${getAudioExtension(blobType)}`,
+            { type: blobType }
+          );
+
+          await uploadVoiceMessage(file, duration);
+        })();
+      };
+
+      recorder.start(1000);
+      setRecording(true);
+      recordingTimerRef.current = setInterval(() => {
+        const elapsed = Math.min(
+          VOICE_MAX_SECONDS,
+          Math.floor((Date.now() - recordingStartedAtRef.current) / 1000)
+        );
+        setRecordingSeconds(elapsed);
+        if (elapsed >= VOICE_MAX_SECONDS && recorder.state === 'recording') {
+          stopRecording(false);
+        }
+      }, 500);
+    } catch (error) {
+      cleanupRecordingStream();
+      clearRecordingTimer();
+      setRecording(false);
+      console.error('Voice recording failed:', error);
+      setMediaError(dir === 'rtl' ? 'تعذر بدء تسجيل الصوت. راجع صلاحية الميكروفون.' : 'Could not start recording. Check microphone permission.');
+    }
+  };
+
   const handleSend = async () => {
-    if (disabled || sending) return;
+    if (disabled || sending || recording) return;
     if (mediaFile && !user) {
       setMediaError(dir === 'rtl' ? 'سجل الدخول الأول عشان تقدر ترفع ملف.' : 'Sign in before uploading a file.');
+      return;
+    }
+
+    const trimmedText = text.trim();
+
+    if (!mediaFile && !trimmedText) return;
+
+    if (!mediaFile && trimmedText) {
+      setMediaError(null);
+      setText('');
+      setEmojiOpen(false);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+
+      void onSend(trimmedText).catch((error) => {
+        console.error('Message send failed:', error);
+        setMediaError(getSendErrorMessage(error, dir, false));
+      });
       return;
     }
 
@@ -311,9 +549,9 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
         clearMedia();
         setMediaOpen(false);
       }
-      if (text.trim()) {
+      if (trimmedText) {
         failedAttachment = false;
-        await onSend(text.trim());
+        await onSend(trimmedText);
         setText('');
         setEmojiOpen(false);
         if (textareaRef.current) {
@@ -362,29 +600,32 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
   };
 
   const sendSticker = async (sticker: string) => {
-    if (disabled || sending || !sticker.trim()) return;
-    setSending(true);
+    const trimmedSticker = sticker.trim();
+    if (disabled || sending || recording || !trimmedSticker) return;
     setMediaError(null);
+    setEmojiOpen(false);
 
-    try {
-      await onSendSticker(sticker);
-      setEmojiOpen(false);
-    } catch (error) {
+    void onSendSticker(trimmedSticker).catch((error) => {
       console.error('Sticker send failed:', error);
       setMediaError(
         dir === 'rtl'
           ? 'تعذر إرسال الاستيكر. حاول مرة تانية.'
           : 'Could not send the sticker. Please try again.'
       );
-    } finally {
-      setSending(false);
-    }
+    });
   };
 
   const canSend =
     (text.trim().length > 0 || !!mediaFile) &&
+    !recording &&
     !sending &&
     !disabled;
+  const canRecord =
+    !disabled &&
+    !sending &&
+    !recording &&
+    !mediaFile &&
+    text.trim().length === 0;
 
   return (
     <div className="border-t border-white/10 bg-[#07111f]/95 px-3 py-3 shadow-[0_-18px_45px_rgba(2,8,23,0.34)] backdrop-blur-xl sm:px-4" dir={dir}>
@@ -457,12 +698,72 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
         </p>
       )}
 
+      <AnimatePresence>
+        {recording && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+            className="mb-2 flex items-center gap-3 rounded-2xl border border-pulse-accent/20 bg-pulse-accent/[0.08] p-2.5 shadow-lg shadow-pulse-accent/10"
+          >
+            <span className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-red-500/15 text-red-300">
+              <span className="absolute h-3 w-3 animate-ping rounded-full bg-red-400/50" />
+              <Mic className="relative h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-pulse-text">
+                {dir === 'rtl' ? 'جاري تسجيل فويس' : 'Recording voice'}
+              </p>
+              <p className="text-xs text-pulse-text-muted">
+                {formatDuration(recordingSeconds)} / {formatDuration(VOICE_MAX_SECONDS)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => stopRecording(true)}
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-pulse-text-muted transition-colors hover:bg-red-500/10 hover:text-red-300"
+              aria-label={dir === 'rtl' ? 'إلغاء التسجيل' : 'Cancel recording'}
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => stopRecording(false)}
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-pulse-accent text-[#07111f] shadow-lg shadow-pulse-accent/20 transition-all hover:-translate-y-0.5"
+              aria-label={dir === 'rtl' ? 'إرسال التسجيل' : 'Send recording'}
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </button>
+          </motion.div>
+        )}
+
+        {!mediaFile && !recording && uploadProgress !== null && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+            className="mb-2 rounded-2xl border border-white/10 bg-white/[0.06] p-3 shadow-lg shadow-black/10"
+          >
+            <div className="mb-1 flex items-center justify-between text-[10px] font-semibold text-pulse-text-muted">
+              <span>{dir === 'rtl' ? 'جاري رفع الفويس' : 'Uploading voice'}</span>
+              <span>{uploadProgress}%</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-pulse-accent transition-[width] duration-200"
+                style={{ width: `${Math.max(uploadProgress, 6)}%` }}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="relative flex items-center gap-2 rounded-[1.65rem] border border-white/10 bg-[#0d1a2a] p-1.5 shadow-inner shadow-black/20">
         <button
           ref={attachButtonRef}
           type="button"
           onClick={() => setMediaOpen((open) => !open)}
-          disabled={disabled || sending}
+          disabled={disabled || sending || recording}
           className={cn(
             'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl transition-all disabled:opacity-40',
             mediaOpen
@@ -614,7 +915,7 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
                             key={`${pack.label}-${sticker}`}
                             type="button"
                             onClick={() => void sendSticker(sticker)}
-                            disabled={disabled || sending}
+                            disabled={disabled || sending || recording}
                             className="flex h-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-4xl shadow-inner shadow-black/10 transition-all hover:-translate-y-0.5 hover:border-pulse-accent/30 hover:bg-pulse-accent/10 active:scale-95 disabled:opacity-50"
                             aria-label={`${dir === 'rtl' ? 'إرسال استيكر' : 'Send sticker'} ${sticker}`}
                           >
@@ -634,7 +935,7 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
             value={text}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
-            disabled={disabled || sending}
+            disabled={disabled || sending || recording}
             placeholder={dir === 'rtl' ? 'اكتب رسالة...' : 'Type a message...'}
             rows={1}
             style={{ direction: 'auto' } as unknown as React.CSSProperties}
@@ -644,7 +945,7 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
             ref={emojiButtonRef}
             type="button"
             onClick={() => setEmojiOpen((open) => !open)}
-            disabled={disabled || sending}
+            disabled={disabled || sending || recording}
             className={cn(
               'absolute bottom-1 end-1 flex h-8 w-8 items-center justify-center rounded-xl transition-all disabled:opacity-40',
             emojiOpen
@@ -657,6 +958,31 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
             <Smile className="h-4 w-4" />
           </button>
         </div>
+
+        <motion.button
+          whileTap={{ scale: 0.85 }}
+          type="button"
+          onClick={() => {
+            if (recording) {
+              stopRecording(false);
+              return;
+            }
+            void startRecording();
+          }}
+          disabled={recording ? false : !canRecord}
+          className={cn(
+            'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40',
+            recording
+              ? 'bg-red-500/15 text-red-300 ring-1 ring-red-400/20'
+              : canRecord
+                ? 'bg-pulse-accent/[0.12] text-pulse-accent hover:-translate-y-0.5 hover:bg-pulse-accent/20'
+                : 'bg-white/[0.04] text-pulse-text-muted/35'
+          )}
+          title={dir === 'rtl' ? 'تسجيل فويس' : 'Record voice'}
+          aria-label={dir === 'rtl' ? 'تسجيل فويس' : 'Record voice'}
+        >
+          {recording ? <Square className="h-3.5 w-3.5 fill-current" /> : <Mic className="h-4 w-4" />}
+        </motion.button>
 
         <motion.button
           whileTap={{ scale: 0.85 }}

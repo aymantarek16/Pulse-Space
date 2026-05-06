@@ -1,0 +1,35 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="aura" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(188 156) rotate(45) scale(360)">
+      <stop stop-color="#4DD6A7" stop-opacity="0.34"/>
+      <stop offset="0.46" stop-color="#09130F" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#09130F" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bg" x1="68" y1="46" x2="456" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B241B"/>
+      <stop offset="0.58" stop-color="#07130F"/>
+      <stop offset="1" stop-color="#2F2412"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="145" y1="142" x2="388" y2="392" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6EF5C8"/>
+      <stop offset="0.55" stop-color="#4DD6A7"/>
+      <stop offset="1" stop-color="#D99A42"/>
+    </linearGradient>
+    <filter id="glow" x="46" y="42" width="420" height="430" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="24" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.301 0 0 0 0 0.839 0 0 0 0 0.655 0 0 0 0.6 0"/>
+      <feBlend in="SourceGraphic"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="#09130F"/>
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="url(#bg)"/>
+  <rect x="26" y="26" width="460" height="460" rx="94" stroke="#4DD6A7" stroke-opacity="0.24" stroke-width="4"/>
+  <circle cx="256" cy="256" r="172" fill="url(#aura)"/>
+  <path opacity="0.32" d="M118 260H181L214 170L287 348L327 254H394" stroke="#9EB3A8" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <g filter="url(#glow)">
+    <path d="M126 280H188L222 175L278 352L318 245H386" stroke="url(#mark)" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M279 118L197 284H265L235 404L357 226H287L279 118Z" fill="url(#mark)"/>
+  </g>
+  <circle cx="126" cy="280" r="18" fill="#F4FBF7"/>
+  <circle cx="386" cy="245" r="18" fill="#F4FBF7"/>
+</svg>

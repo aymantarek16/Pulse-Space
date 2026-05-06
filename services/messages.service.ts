@@ -35,6 +35,12 @@ import type {
 
 export const MESSAGE_REACTION_EMOJIS: MessageReactionEmoji[] = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
+interface SendMessageOptions {
+  voiceDuration?: number;
+  forwardedFromMessageId?: string;
+  forwardedFromSenderId?: string;
+}
+
 // ─── Get or create direct conversation ───────────────────────────────────────
 
 export async function getOrCreateDirectConversation(
@@ -93,16 +99,20 @@ export async function sendMessage(
   senderId: string,
   content: string,
   type: MessageType = 'text',
-  mediaUrl?: string
+  mediaUrl?: string,
+  clientId?: string,
+  options: SendMessageOptions = {}
 ): Promise<string> {
   const previewContent =
     type === 'text'
       ? content
       : type === 'sticker'
       ? `Sticker ${content}`
+      : type === 'audio'
+      ? 'Voice message'
       : `📎 ${type}`;
 
-  const ref = await addDoc(collection(db, Collections.MESSAGES), {
+  const messageData = {
     conversationId,
     senderId,
     content,
@@ -111,12 +121,25 @@ export async function sendMessage(
     readBy: [senderId],
     reactions: {},
     createdAt: serverTimestamp(),
-  });
+    ...(options.forwardedFromMessageId
+      ? {
+          forwardedFromMessageId: options.forwardedFromMessageId,
+          forwardedFromSenderId: options.forwardedFromSenderId,
+        }
+      : {}),
+    ...(clientId ? { clientId } : {}),
+    ...(Number.isFinite(options.voiceDuration)
+      ? { voiceDuration: Math.max(0, Math.round(options.voiceDuration || 0)) }
+      : {}),
+  };
+
+  const ref = await addDoc(collection(db, Collections.MESSAGES), messageData);
 
   // Update conversation last message
   await updateDocument(Collections.CONVERSATIONS, conversationId, {
     lastMessage: {
       id: ref.id,
+      ...(clientId ? { clientId } : {}),
       content: previewContent,
       senderId,
       type,
@@ -133,23 +156,132 @@ export async function sendMediaMessage(
   conversationId: string,
   senderId: string,
   mediaUrl: string,
-  type: Extract<MessageType, 'image' | 'file'> = 'image',
-  content?: string
+  type: Extract<MessageType, 'image' | 'file' | 'audio'> = 'image',
+  content?: string,
+  clientId?: string,
+  options?: SendMessageOptions
 ): Promise<string> {
   const url = getExternalUrl(mediaUrl);
   if (!url) throw new Error('A valid HTTPS media URL is required.');
 
-  return sendMessage(conversationId, senderId, content || url, type, url);
+  return sendMessage(conversationId, senderId, content || url, type, url, clientId, options);
 }
 
 export async function sendStickerMessage(
   conversationId: string,
   senderId: string,
-  sticker: string
+  sticker: string,
+  clientId?: string
 ): Promise<string> {
   const content = sticker.trim();
   if (!content) throw new Error('Sticker is required.');
-  return sendMessage(conversationId, senderId, content, 'sticker');
+  return sendMessage(conversationId, senderId, content, 'sticker', undefined, clientId);
+}
+
+export async function editMessage(
+  messageId: string,
+  userId: string,
+  content: string
+): Promise<void> {
+  const nextContent = content.trim();
+  if (!nextContent) throw new Error('Message content is required.');
+
+  const message = await getDocument<Message>(Collections.MESSAGES, messageId);
+  if (!message) throw new Error('Message not found.');
+  if (message.senderId !== userId) throw new Error('You can only edit your own messages.');
+  if (message.deletedForAll) throw new Error('Deleted messages cannot be edited.');
+  if (message.type !== 'text') throw new Error('Only text messages can be edited.');
+
+  await updateDocument(Collections.MESSAGES, messageId, {
+    content: nextContent,
+    editedAt: serverTimestamp(),
+  });
+
+  await updateConversationLastMessageIfCurrent(message.conversationId, messageId, {
+    content: nextContent,
+    type: message.type,
+  });
+}
+
+export async function deleteMessageForMe(
+  messageId: string,
+  userId: string
+): Promise<void> {
+  await updateDocument(Collections.MESSAGES, messageId, {
+    deletedFor: arrayUnion(userId),
+  });
+}
+
+export async function deleteMessageForEveryone(
+  messageId: string,
+  userId: string
+): Promise<void> {
+  const message = await getDocument<Message>(Collections.MESSAGES, messageId);
+  if (!message) throw new Error('Message not found.');
+  if (message.senderId !== userId) {
+    throw new Error('You can only delete your own messages for everyone.');
+  }
+
+  await updateConversationLastMessageIfCurrent(message.conversationId, messageId, {
+    content: 'Message deleted',
+    type: 'text',
+    mediaUrl: null,
+    deletedForAll: true,
+  });
+
+  await Promise.all([
+    deleteMessageReactions(messageId).catch(console.error),
+    deleteDocument(Collections.MESSAGES, messageId),
+  ]);
+}
+
+export async function deleteMessagesForMe(
+  messageIds: string[],
+  userId: string
+): Promise<void> {
+  const uniqueIds = [...new Set(messageIds)].filter(Boolean);
+  await Promise.all(uniqueIds.map((messageId) => deleteMessageForMe(messageId, userId)));
+}
+
+export async function deleteMessagesForEveryone(
+  messageIds: string[],
+  userId: string
+): Promise<void> {
+  const uniqueIds = [...new Set(messageIds)].filter(Boolean);
+  await Promise.all(uniqueIds.map((messageId) => deleteMessageForEveryone(messageId, userId)));
+}
+
+export async function forwardMessages(
+  messageIds: string[],
+  targetConversationId: string,
+  senderId: string
+): Promise<void> {
+  const uniqueIds = [...new Set(messageIds)].filter(Boolean);
+
+  for (const messageId of uniqueIds) {
+    const message = await getDocument<Message>(Collections.MESSAGES, messageId);
+    if (
+      !message ||
+      message.deletedForAll ||
+      message.deletedFor?.includes(senderId)
+    ) {
+      continue;
+    }
+
+    await sendMessage(
+      targetConversationId,
+      senderId,
+      message.content,
+      message.type,
+      message.mediaUrl || undefined,
+      undefined,
+      {
+        voiceDuration: message.voiceDuration,
+        forwardedFromMessageId: message.id,
+        forwardedFromSenderId: message.senderId,
+      }
+    );
+  }
 }
 
 // ─── Mark messages as read ────────────────────────────────────────────────────
@@ -163,7 +295,11 @@ export async function markConversationRead(
     where('conversationId', '==', conversationId),
   ]);
   const unreadForUser = unread.filter(
-    (m) => m.senderId !== userId && !m.readBy?.includes(userId)
+    (m) =>
+      !m.deletedForAll &&
+      !m.deletedFor?.includes(userId) &&
+      m.senderId !== userId &&
+      !m.readBy?.includes(userId)
   );
 
   if (!unreadForUser.length) return;
@@ -239,7 +375,13 @@ export async function getUnreadCount(
   const msgs = await queryDocuments<Message>(Collections.MESSAGES, [
     where('conversationId', '==', conversationId),
   ]);
-  return msgs.filter((m) => m.senderId !== userId && !m.readBy?.includes(userId)).length;
+  return msgs.filter(
+    (m) =>
+      !m.deletedForAll &&
+      !m.deletedFor?.includes(userId) &&
+      m.senderId !== userId &&
+      !m.readBy?.includes(userId)
+  ).length;
 }
 
 // ─── Delete message ───────────────────────────────────────────────────────────
@@ -319,6 +461,29 @@ export async function searchConversations(
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function updateConversationLastMessageIfCurrent(
+  conversationId: string,
+  messageId: string,
+  patch: Partial<Message>
+) {
+  const conversation = await getDocument<Conversation>(Collections.CONVERSATIONS, conversationId);
+  if (!conversation?.lastMessage || conversation.lastMessage.id !== messageId) return;
+
+  await updateDocument(Collections.CONVERSATIONS, conversationId, {
+    lastMessage: {
+      ...conversation.lastMessage,
+      ...patch,
+    },
+  });
+}
+
+async function deleteMessageReactions(messageId: string) {
+  const reactions = await queryDocuments<MessageReaction>(Collections.REACTIONS, [
+    where('targetId', '==', messageId),
+  ]);
+  await Promise.all(reactions.map((reaction) => deleteDocument(Collections.REACTIONS, reaction.id)));
+}
 
 async function enrichConversationsWithParticipants(
   convs: Conversation[],

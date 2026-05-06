@@ -19,6 +19,7 @@ export function SoundAlerts() {
     notificationsLoading,
     conversations,
     conversationsLoading,
+    activeConversationId,
   } = useActivity();
 
   const notificationsReadyRef = useRef(false);
@@ -99,7 +100,11 @@ export function SoundAlerts() {
       if (!conversationsReadyRef.current || !lastMessageId) return;
 
       const previousId = previousLastMessageIdsRef.current[conversation.id] ?? null;
-      if (lastMessageId !== previousId && lastMessage?.senderId !== user.uid) {
+      if (
+        conversation.id !== activeConversationId &&
+        lastMessageId !== previousId &&
+        lastMessage?.senderId !== user.uid
+      ) {
         hasIncomingMessage = true;
       }
     });
@@ -115,7 +120,7 @@ export function SoundAlerts() {
     if (hasIncomingMessage) {
       playWithThrottle(() => playMessageSound(soundEnabled));
     }
-  }, [conversations, conversationsLoading, soundEnabled, user?.uid]);
+  }, [activeConversationId, conversations, conversationsLoading, soundEnabled, user?.uid]);
 
   function playWithThrottle(play: () => boolean) {
     if (!soundEnabled) return;

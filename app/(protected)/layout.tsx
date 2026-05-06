@@ -16,6 +16,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
 
   const isMessages = pathname?.startsWith('/messages');
+  const isChatThread = !!pathname && /^\/messages\/[^/]+/.test(pathname);
 
   useEffect(() => {
     if (!initialized || loading || authError) return;
@@ -109,7 +110,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
           <main className={`flex-1 md:ms-64 lg:ms-72 ${isMessages ? '' : 'pb-20 md:pb-0'}`}>
             {isMessages ? (
               // Messages gets full height, no container padding
-              <div className="h-screen">
+              <div className={`h-[100dvh] md:h-screen ${isChatThread ? '' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0'}`}>
                 {children}
               </div>
             ) : (
@@ -119,7 +120,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
             )}
           </main>
 
-          {!isMessages && <MobileNav />}
+          {!isChatThread && <MobileNav />}
         </div>
       </ActivityProvider>
     </VoiceCallProvider>
