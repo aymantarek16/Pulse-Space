@@ -12,7 +12,7 @@ import {
   FileText,
   Sparkles,
   Mic,
-  Square,
+  Trash2,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -32,6 +32,12 @@ interface ChatInputProps {
     type: Extract<MessageType, 'image' | 'file' | 'audio'>,
     content?: string,
     options?: { voiceDuration?: number }
+  ) => Promise<void>;
+  onSendVoice: (
+    file: File,
+    previewUrl: string,
+    duration: number,
+    content?: string
   ) => Promise<void>;
   onSendSticker: (sticker: string) => Promise<void>;
   disabled?: boolean;
@@ -116,7 +122,6 @@ const FILE_ACCEPT =
   '.pdf,.zip,.rar,.7z,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,application/pdf,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/vnd.rar,application/x-7z-compressed,text/plain,text/csv';
 const UPLOAD_TIMEOUT_MS = 15000;
 const UPLOAD_STALL_TIMEOUT_MS = 8000;
-const VOICE_UPLOAD_TIMEOUT_MS = 120000;
 const VOICE_MAX_SECONDS = 10 * 60;
 const INLINE_ATTACHMENT_MAX_DATA_URL_LENGTH = 750000;
 
@@ -200,7 +205,13 @@ function getSendErrorMessage(error: unknown, dir: string, hadAttachment: boolean
       : 'Could not send the message. Please try again.';
 }
 
-export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: ChatInputProps) {
+export function ChatInput({
+  onSend,
+  onSendMedia,
+  onSendVoice,
+  onSendSticker,
+  disabled,
+}: ChatInputProps) {
   const { user } = useAuth();
   const { dir } = useLanguage();
   const [text, setText] = useState('');
@@ -228,6 +239,7 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
   const recordingStartedAtRef = useRef(0);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const discardRecordingRef = useRef(false);
+  const recordingStoppingRef = useRef(false);
 
   useEffect(() => {
     if (!emojiOpen) return;
@@ -342,41 +354,26 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
     recordingStreamRef.current = null;
   };
 
-  const uploadVoiceMessage = async (file: File, duration: number) => {
-    if (!user) return;
-    setSending(true);
-    setUploadProgress(0);
+  const sendRecordedVoice = async (chunks: Blob[], blobType: string, duration: number) => {
+    const blob = new Blob(chunks, { type: blobType });
+    const file = new File(
+      [blob],
+      `voice-${Date.now()}.${getAudioExtension(blobType)}`,
+      { type: blobType }
+    );
+    const previewUrl = URL.createObjectURL(blob);
 
     try {
-      let uploadedUrl: string;
-      try {
-        uploadedUrl = await uploadFile(file, `uploads/${user.uid}/messages/voice`, {
-          timeoutMs: VOICE_UPLOAD_TIMEOUT_MS,
-          stallTimeoutMs: UPLOAD_STALL_TIMEOUT_MS,
-          maxAttempts: 1,
-          onProgress: setUploadProgress,
-        });
-      } catch (storageError) {
-        console.warn('Firebase Storage voice upload failed, using inline fallback:', storageError);
-        setUploadProgress(35);
-        uploadedUrl = await fileToDataUrl(file, {
-          maxDataUrlLength: INLINE_ATTACHMENT_MAX_DATA_URL_LENGTH,
-        });
-        setUploadProgress(100);
-      }
-
-      await onSendMedia(
-        uploadedUrl,
-        'audio',
-        dir === 'rtl' ? 'رسالة صوتية' : 'Voice message',
-        { voiceDuration: duration }
+      await onSendVoice(
+        file,
+        previewUrl,
+        duration,
+        dir === 'rtl' ? 'رسالة صوتية' : 'Voice message'
       );
     } catch (error) {
-      console.error('Voice message send failed:', error);
+      URL.revokeObjectURL(previewUrl);
+      console.error('Voice message handoff failed:', error);
       setMediaError(getSendErrorMessage(error, dir, true));
-    } finally {
-      setUploadProgress(null);
-      setSending(false);
     }
   };
 
@@ -388,13 +385,19 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
       cleanupRecordingStream();
       setRecording(false);
       setRecordingSeconds(0);
+      recordingStoppingRef.current = false;
       return;
     }
+    if (recordingStoppingRef.current) return;
+    recordingStoppingRef.current = true;
+    try {
+      if (recorder.state === 'recording') recorder.requestData();
+    } catch {}
     recorder.stop();
   };
 
   const startRecording = async () => {
-    if (disabled || sending || recording || mediaFile || text.trim()) return;
+    if (disabled || sending || recording || mediaFile) return;
     if (!user) {
       setMediaError(dir === 'rtl' ? 'سجل الدخول الأول عشان تقدر تبعت فويس.' : 'Sign in before sending a voice message.');
       return;
@@ -416,6 +419,7 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
       recorderRef.current = recorder;
       audioChunksRef.current = [];
       discardRecordingRef.current = false;
+      recordingStoppingRef.current = false;
       recordingStartedAtRef.current = Date.now();
       setRecordingSeconds(0);
 
@@ -431,6 +435,7 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
           cleanupRecordingStream();
           setRecording(false);
           recorderRef.current = null;
+          recordingStoppingRef.current = false;
 
           if (discardRecordingRef.current) {
             audioChunksRef.current = [];
@@ -453,14 +458,7 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
           }
 
           const blobType = recorder.mimeType || mimeType || 'audio/webm';
-          const blob = new Blob(chunks, { type: blobType });
-          const file = new File(
-            [blob],
-            `voice-${Date.now()}.${getAudioExtension(blobType)}`,
-            { type: blobType }
-          );
-
-          await uploadVoiceMessage(file, duration);
+          await sendRecordedVoice(chunks, blobType, duration);
         })();
       };
 
@@ -480,6 +478,7 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
       cleanupRecordingStream();
       clearRecordingTimer();
       setRecording(false);
+      recordingStoppingRef.current = false;
       console.error('Voice recording failed:', error);
       setMediaError(dir === 'rtl' ? 'تعذر بدء تسجيل الصوت. راجع صلاحية الميكروفون.' : 'Could not start recording. Check microphone permission.');
     }
@@ -624,8 +623,7 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
     !disabled &&
     !sending &&
     !recording &&
-    !mediaFile &&
-    text.trim().length === 0;
+    !mediaFile;
 
   return (
     <div className="border-t border-white/10 bg-[#07111f]/95 px-3 py-3 shadow-[0_-18px_45px_rgba(2,8,23,0.34)] backdrop-blur-xl sm:px-4" dir={dir}>
@@ -704,7 +702,7 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
             initial={{ opacity: 0, y: 8, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
-            className="mb-2 flex items-center gap-3 rounded-2xl border border-pulse-accent/20 bg-pulse-accent/[0.08] p-2.5 shadow-lg shadow-pulse-accent/10"
+            className="mb-2 flex items-center gap-2.5 rounded-2xl border border-pulse-accent/25 bg-[#0b1d1e]/95 p-2.5 shadow-lg shadow-pulse-accent/10"
           >
             <span className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-red-500/15 text-red-300">
               <span className="absolute h-3 w-3 animate-ping rounded-full bg-red-400/50" />
@@ -718,21 +716,33 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
                 {formatDuration(recordingSeconds)} / {formatDuration(VOICE_MAX_SECONDS)}
               </p>
             </div>
+            <div className="hidden h-9 items-end gap-0.5 sm:flex" aria-hidden="true">
+              {[10, 18, 26, 16, 30, 22, 14].map((height, index) => (
+                <span
+                  key={`${height}-${index}`}
+                  className="w-1 rounded-full bg-pulse-accent/70"
+                  style={{
+                    height,
+                    animation: `pulse 900ms ease-in-out ${index * 90}ms infinite alternate`,
+                  }}
+                />
+              ))}
+            </div>
             <button
               type="button"
               onClick={() => stopRecording(true)}
-              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-pulse-text-muted transition-colors hover:bg-red-500/10 hover:text-red-300"
-              aria-label={dir === 'rtl' ? 'إلغاء التسجيل' : 'Cancel recording'}
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-red-400/15 bg-red-500/10 text-red-300 transition-colors hover:bg-red-500/20"
+              aria-label={dir === 'rtl' ? 'حذف التسجيل' : 'Discard recording'}
             >
-              <X className="h-4 w-4" />
+              <Trash2 className="h-4 w-4" />
             </button>
             <button
               type="button"
               onClick={() => stopRecording(false)}
-              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-pulse-accent text-[#07111f] shadow-lg shadow-pulse-accent/20 transition-all hover:-translate-y-0.5"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-pulse-accent to-pulse-accent-dark text-white shadow-lg shadow-pulse-accent/25 transition-all hover:-translate-y-0.5"
               aria-label={dir === 'rtl' ? 'إرسال التسجيل' : 'Send recording'}
             >
-              <Square className="h-3.5 w-3.5 fill-current" />
+              <Send className={cn('h-4 w-4', dir === 'rtl' ? 'rotate-180' : '')} />
             </button>
           </motion.div>
         )}
@@ -978,10 +988,10 @@ export function ChatInput({ onSend, onSendMedia, onSendSticker, disabled }: Chat
                 ? 'bg-pulse-accent/[0.12] text-pulse-accent hover:-translate-y-0.5 hover:bg-pulse-accent/20'
                 : 'bg-white/[0.04] text-pulse-text-muted/35'
           )}
-          title={dir === 'rtl' ? 'تسجيل فويس' : 'Record voice'}
-          aria-label={dir === 'rtl' ? 'تسجيل فويس' : 'Record voice'}
+          title={recording ? (dir === 'rtl' ? 'إرسال الفويس الآن' : 'Send voice now') : (dir === 'rtl' ? 'تسجيل فويس' : 'Record voice')}
+          aria-label={recording ? (dir === 'rtl' ? 'إرسال الفويس الآن' : 'Send voice now') : (dir === 'rtl' ? 'تسجيل فويس' : 'Record voice')}
         >
-          {recording ? <Square className="h-3.5 w-3.5 fill-current" /> : <Mic className="h-4 w-4" />}
+          {recording ? <Send className={cn('h-4 w-4', dir === 'rtl' ? 'rotate-180' : '')} /> : <Mic className="h-4 w-4" />}
         </motion.button>
 
         <motion.button

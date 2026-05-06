@@ -7,7 +7,6 @@ import {
   isFollowing,
   getFollowersWithUsers,
   getFollowingWithUsers,
-  getSuggestedUsers,
   getFollowing,
 } from '@/services/follows.service';
 import type { User } from '@/types';
@@ -120,22 +119,15 @@ export function useSuggested(currentUserId: string | undefined) {
   const [loading, setLoading] = useState(() => (currentUserId ? !suggestedCache.has(currentUserId) : false));
 
   useEffect(() => {
-    if (!currentUserId) return;
-    const cached = suggestedCache.get(currentUserId);
-    if (cached) {
-      setUsers(cached);
+    if (!currentUserId) {
+      setUsers([]);
       setLoading(false);
-    } else {
-      setLoading(true);
+      return;
     }
-    getFollowing(currentUserId).then((followingIds) =>
-      getSuggestedUsers(currentUserId, followingIds)
-        .then((data) => {
-          suggestedCache.set(currentUserId, data);
-          setUsers(data);
-        })
-        .finally(() => setLoading(false))
-    );
+
+    suggestedCache.set(currentUserId, []);
+    setUsers([]);
+    setLoading(false);
   }, [currentUserId]);
 
   const remove = useCallback((uid: string) => {

@@ -3,7 +3,7 @@
 import React from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowRight, ArrowLeft, Users } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Shield } from 'lucide-react';
 import { useUserByUsername } from '@/hooks/useUser';
 import { useFollowers } from '@/hooks/useFollow';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,13 +11,15 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { UserList } from '@/components/follow/UserCard';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
+import { GlassCard } from '@/components/ui/GlassCard';
 
 export default function FollowersPage() {
   const params = useParams();
   const username = params?.username as string;
   const { user: currentUser } = useAuth();
   const { user: profileUser, loading: userLoading } = useUserByUsername(username);
-  const { users, loading } = useFollowers(profileUser?.uid);
+  const isOwnProfile = currentUser?.uid === profileUser?.uid;
+  const { users, loading } = useFollowers(isOwnProfile ? profileUser?.uid : undefined);
   const { dir } = useLanguage();
   const router = useRouter();
 
@@ -49,12 +51,26 @@ export default function FollowersPage() {
 
       {/* List */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-        <UserList
-          users={users}
-          currentUserId={currentUser?.uid}
-          loading={loading}
-          emptyMessage={dir === 'rtl' ? 'لا يوجد متابعون بعد' : 'No followers yet'}
-        />
+        {!userLoading && profileUser && !isOwnProfile ? (
+          <GlassCard className="text-center py-16">
+            <Shield className="mx-auto mb-4 h-10 w-10 text-pulse-accent/30" />
+            <p className="font-semibold text-pulse-text">
+              {dir === 'rtl' ? 'قائمة المتابعين خاصة' : 'Followers list is private'}
+            </p>
+            <p className="mt-2 text-sm text-pulse-text-muted">
+              {dir === 'rtl'
+                ? 'لا يمكن اكتشاف المستخدمين من قوائم حسابات الآخرين.'
+                : "Users can't be discovered from other people's lists."}
+            </p>
+          </GlassCard>
+        ) : (
+          <UserList
+            users={users}
+            currentUserId={currentUser?.uid}
+            loading={loading}
+            emptyMessage={dir === 'rtl' ? 'لا يوجد متابعون بعد' : 'No followers yet'}
+          />
+        )}
       </motion.div>
     </div>
   );

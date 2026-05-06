@@ -164,9 +164,11 @@ export function subscribeToUser(
 // ─── Search users ─────────────────────────────────────────────────────────────
 
 export async function searchUsers(query: string): Promise<User[]> {
+  const username = query.trim().replace(/^@+/, '').toLowerCase();
+  if (!username) return [];
+
   return queryDocuments<User>(Collections.USERS, [
-    where('username', '>=', query.toLowerCase()),
-    where('username', '<=', query.toLowerCase() + '\uf8ff'),
-    limit(10),
+    where('username', '==', username),
+    limit(1),
   ]);
 }

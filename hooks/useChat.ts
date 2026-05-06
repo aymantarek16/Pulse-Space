@@ -10,7 +10,12 @@ import {
   getOrCreateDirectConversation,
   markConversationRead,
 } from '@/services/messages.service';
+import { fileToDataUrl, uploadFile } from '@/lib/firebase/storage';
 import type { Conversation, Message, MessageType } from '@/types';
+
+const VOICE_UPLOAD_TIMEOUT_MS = 120000;
+const VOICE_UPLOAD_STALL_TIMEOUT_MS = 8000;
+const VOICE_INLINE_MAX_DATA_URL_LENGTH = 750000;
 
 function createClientMessageId() {
   return `local-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -100,6 +105,22 @@ export function useMessages(
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const voicePreviewUrlsRef = useRef<Map<string, string>>(new Map());
+
+  const revokeVoicePreviewUrl = useCallback((clientId: string) => {
+    const previewUrl = voicePreviewUrlsRef.current.get(clientId);
+    if (previewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    voicePreviewUrlsRef.current.delete(clientId);
+  }, []);
+
+  const revokeAllVoicePreviewUrls = useCallback(() => {
+    voicePreviewUrlsRef.current.forEach((previewUrl) => {
+      if (previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
+    });
+    voicePreviewUrlsRef.current.clear();
+  }, []);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -117,14 +138,20 @@ export function useMessages(
   }, [currentUserId]);
 
   useEffect(() => {
+    return () => revokeAllVoicePreviewUrls();
+  }, [revokeAllVoicePreviewUrls]);
+
+  useEffect(() => {
     if (!conversationId) {
       setServerMessages([]);
       setOptimisticMessages([]);
       setLoading(false);
+      revokeAllVoicePreviewUrls();
       return;
     }
     setLoading(true);
     setOptimisticMessages([]);
+    revokeAllVoicePreviewUrls();
     const unsub = subscribeToMessages(conversationId, (data) => {
       setServerMessages(data);
       setLoading(false);
@@ -134,7 +161,7 @@ export function useMessages(
       }, 50);
     });
     return () => unsub();
-  }, [conversationId]);
+  }, [conversationId, revokeAllVoicePreviewUrls]);
 
   useEffect(() => {
     const confirmedClientIds = new Set(
@@ -146,10 +173,12 @@ export function useMessages(
 
     if (!confirmedClientIds.size) return;
 
+    confirmedClientIds.forEach(revokeVoicePreviewUrl);
+
     setOptimisticMessages((current) =>
       current.filter((message) => !message.clientId || !confirmedClientIds.has(message.clientId))
     );
-  }, [serverMessages]);
+  }, [revokeVoicePreviewUrl, serverMessages]);
 
   const messages = useMemo(() => {
     const pendingClientIds = new Set(
@@ -205,6 +234,17 @@ export function useMessages(
       if (!currentUserId) return;
       const ids = messageIds.filter(Boolean);
       if (!ids.length) return;
+      const idSet = new Set(ids);
+
+      setOptimisticMessages((current) =>
+        current.filter((message) => {
+          const shouldHide =
+            idSet.has(message.id) ||
+            Boolean(message.clientId && idSet.has(message.clientId));
+          if (shouldHide && message.clientId) revokeVoicePreviewUrl(message.clientId);
+          return !shouldHide;
+        })
+      );
 
       setHiddenMessageIds((current) => {
         const next = new Set(current);
@@ -215,7 +255,7 @@ export function useMessages(
         return next;
       });
     },
-    [currentUserId]
+    [currentUserId, revokeVoicePreviewUrl]
   );
 
   const readConversation = useCallback(async () => {
@@ -304,6 +344,69 @@ export function useMessages(
     [conversationId, currentUserId, markOptimisticFailed, pushOptimisticMessage]
   );
 
+  const sendVoice = useCallback(
+    async (
+      file: File,
+      previewUrl: string,
+      duration: number,
+      content = 'Voice message'
+    ) => {
+      if (!conversationId || !currentUserId) {
+        if (previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
+        return;
+      }
+
+      const clientId = createClientMessageId();
+      if (previewUrl.startsWith('blob:')) {
+        voicePreviewUrlsRef.current.set(clientId, previewUrl);
+      }
+
+      pushOptimisticMessage(
+        createOptimisticMessage({
+          clientId,
+          conversationId,
+          senderId: currentUserId,
+          content,
+          type: 'audio',
+          mediaUrl: previewUrl,
+          voiceDuration: duration,
+        })
+      );
+
+      void (async () => {
+        try {
+          let uploadedUrl: string;
+          try {
+            uploadedUrl = await uploadFile(file, `uploads/${currentUserId}/messages/voice`, {
+              timeoutMs: VOICE_UPLOAD_TIMEOUT_MS,
+              stallTimeoutMs: VOICE_UPLOAD_STALL_TIMEOUT_MS,
+              maxAttempts: 1,
+            });
+          } catch (storageError) {
+            console.warn('Firebase Storage voice upload failed, using inline fallback:', storageError);
+            uploadedUrl = await fileToDataUrl(file, {
+              maxDataUrlLength: VOICE_INLINE_MAX_DATA_URL_LENGTH,
+            });
+          }
+
+          await sendMediaMessage(
+            conversationId,
+            currentUserId,
+            uploadedUrl,
+            'audio',
+            content,
+            clientId,
+            { voiceDuration: duration }
+          );
+        } catch (error) {
+          console.error('Voice message send failed:', error);
+          markOptimisticFailed(clientId);
+        }
+      })();
+    },
+    [conversationId, currentUserId, markOptimisticFailed, pushOptimisticMessage]
+  );
+
   const sendSticker = useCallback(
     async (sticker: string) => {
       const trimmedSticker = sticker.trim();
@@ -329,7 +432,7 @@ export function useMessages(
     [conversationId, currentUserId, markOptimisticFailed, pushOptimisticMessage]
   );
 
-  return { messages, loading, send, sendMedia, sendSticker, hideMessagesLocally, bottomRef };
+  return { messages, loading, send, sendMedia, sendVoice, sendSticker, hideMessagesLocally, bottomRef };
 }
 
 // ─── Start or open DM ─────────────────────────────────────────────────────────

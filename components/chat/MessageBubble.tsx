@@ -234,7 +234,11 @@ export function MessageBubble({
   const [reactionMap, setReactionMap] = useState<Record<string, MessageReactionEmoji>>(
     message.reactions || {}
   );
-  const mediaUrl = getExternalUrl(message.mediaUrl);
+  const rawMediaUrl = message.mediaUrl?.trim() ?? '';
+  const mediaUrl =
+    (message.optimistic || message.id.startsWith('local-')) && rawMediaUrl.startsWith('blob:')
+      ? rawMediaUrl
+      : getExternalUrl(message.mediaUrl);
   const isDataUrl = mediaUrl?.startsWith('data:') ?? false;
   const currentReaction = user?.uid ? reactionMap[user.uid] : null;
   const attachmentName =
@@ -245,7 +249,8 @@ export function MessageBubble({
   const isDeletedForAll = Boolean(message.deletedForAll);
   const canEditMessage = isOwn && message.type === 'text' && !isDeletedForAll && !isLocalMessage;
   const canDeleteForEveryone = isOwn && !isDeletedForAll && !isLocalMessage && Boolean(onDeleteForEveryone);
-  const canOpenActions = !isLocalMessage && !selectionMode;
+  const canDeleteLocalMessage = isLocalMessage && Boolean(message.sendFailed) && Boolean(onDeleteForMe);
+  const canOpenActions = (!isLocalMessage || canDeleteLocalMessage) && !selectionMode;
 
   useEffect(() => {
     setEditDraft(message.content);
@@ -270,7 +275,7 @@ export function MessageBubble({
   }, [isLocalMessage, message.id, message.reactions]);
 
   const handleDeleteForMe = async () => {
-    if (!user || isLocalMessage || !onDeleteForMe) return;
+    if (!user || !onDeleteForMe || (isLocalMessage && !message.sendFailed)) return;
     setDeleting(true);
     setActionsOpen(false);
     try {
@@ -461,7 +466,7 @@ export function MessageBubble({
               </div>
 
               <div className="grid gap-1.5">
-                {onStartSelection && (
+                {onStartSelection && !isLocalMessage && (
                   <button
                     type="button"
                     onClick={handleStartSelection}
@@ -481,7 +486,7 @@ export function MessageBubble({
                     {dir === 'rtl' ? 'تعديل الرسالة' : 'Edit message'}
                   </button>
                 )}
-                {onForward && !isDeletedForAll && (
+                {onForward && !isDeletedForAll && !isLocalMessage && (
                   <button
                     type="button"
                     onClick={handleForward}
@@ -713,7 +718,9 @@ export function MessageBubble({
       );
     }
 
-    if (message.type === 'audio' && mediaUrl) {
+    if (message.type === 'audio') {
+      const voicePreparing = !mediaUrl && message.optimistic && !message.sendFailed;
+
       return (
         <motion.div
           initial={{ opacity: 0, scale: 0.92, y: 8 }}
@@ -734,19 +741,41 @@ export function MessageBubble({
                 {dir === 'rtl' ? 'رسالة صوتية' : 'Voice message'}
               </p>
               <p className="text-xs text-pulse-text-muted">
-                {formatDuration(message.voiceDuration)}
+                {voicePreparing
+                  ? (dir === 'rtl' ? 'جاري الإرسال في الخلفية' : 'Sending in background')
+                  : formatDuration(message.voiceDuration)}
               </p>
             </div>
             {isOwn && <ReadReceipt message={message} />}
           </div>
-          <audio
-            controls
-            preload="metadata"
-            src={mediaUrl}
-            className="h-9 w-full accent-pulse-accent"
-          />
+          {mediaUrl ? (
+            <audio
+              controls
+              preload="metadata"
+              src={mediaUrl}
+              className="h-9 w-full accent-pulse-accent"
+            />
+          ) : (
+            <div className="flex h-10 items-center justify-between rounded-2xl border border-white/10 bg-[#07111f]/70 px-3 text-xs text-pulse-text-muted">
+              <span>
+                {message.sendFailed
+                  ? (dir === 'rtl' ? 'تعذر إرسال التسجيل' : 'Could not send voice')
+                  : (dir === 'rtl' ? 'تجهيز التسجيل...' : 'Preparing voice...')}
+              </span>
+              {message.sendFailed ? (
+                <X className="h-4 w-4 text-red-300" />
+              ) : (
+                <Loader2 className="h-4 w-4 animate-spin text-pulse-accent" />
+              )}
+            </div>
+          )}
           <div className="mt-2 flex items-center justify-between text-[10px] text-pulse-text-muted">
             <span>{formatTime(message.createdAt)}</span>
+            {message.sendFailed && (
+              <span className="text-red-300">
+                {dir === 'rtl' ? 'فشل الإرسال' : 'Send failed'}
+              </span>
+            )}
             {message.editedAt && <span>{dir === 'rtl' ? 'تم التعديل' : 'Edited'}</span>}
           </div>
         </motion.div>

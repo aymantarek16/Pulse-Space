@@ -90,7 +90,7 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
     (conversationId: string) => markActiveConversationRead(conversationId, lastMessageId),
     [lastMessageId, markActiveConversationRead]
   );
-  const { messages, loading, send, sendMedia, sendSticker, hideMessagesLocally, bottomRef } = useMessages(
+  const { messages, loading, send, sendMedia, sendVoice, sendSticker, hideMessagesLocally, bottomRef } = useMessages(
     conversation.id,
     currentUserId,
     handleConversationRead
@@ -217,12 +217,18 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
     async (items: Message[]) => {
       const ids = items.map((message) => message.id).filter(Boolean);
       if (!ids.length || bulkBusy) return;
+      const remoteIds = items
+        .filter((message) => !message.optimistic && !message.id.startsWith('local-'))
+        .map((message) => message.id)
+        .filter(Boolean);
 
       setBulkBusy(true);
       hideMessagesLocally(ids);
       setSelectedMessageIds(new Set());
       try {
-        await deleteMessagesForMe(ids, currentUserId);
+        if (remoteIds.length) {
+          await deleteMessagesForMe(remoteIds, currentUserId);
+        }
       } catch (error) {
         console.error('Could not delete selected messages for me:', error);
       } finally {
@@ -781,6 +787,7 @@ export function ChatWindow({ conversation, currentUserId }: ChatWindowProps) {
         <ChatInput
           onSend={send}
           onSendMedia={sendMedia}
+          onSendVoice={sendVoice}
           onSendSticker={sendSticker}
           disabled={selectionMode || bulkBusy}
         />

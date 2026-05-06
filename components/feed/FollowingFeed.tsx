@@ -30,15 +30,15 @@ export function FollowingFeed({ followingIds, loading: idsLoading }: FollowingFe
         </p>
         <p className="text-sm text-pulse-text-muted mb-5">
           {dir === 'rtl'
-            ? 'تابع مستخدمين لترى منشوراتهم هنا'
-            : 'Follow people to see their posts here'}
+            ? 'ابحث عن اليوزرنيم مباشرة ثم تابع الشخص لترى منشوراته هنا'
+            : 'Search an exact username, then follow that person to see their posts here'}
         </p>
         <Link
           href="/explore"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-pulse-accent/10 text-pulse-accent border border-pulse-accent/20 text-sm font-medium hover:bg-pulse-accent/20 transition-colors"
         >
           <UserPlus className="w-4 h-4" />
-          {dir === 'rtl' ? 'اكتشف مستخدمين' : 'Discover people'}
+          {dir === 'rtl' ? 'بحث باليوزرنيم' : 'Search username'}
         </Link>
       </GlassCard>
     );

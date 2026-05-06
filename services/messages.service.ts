@@ -109,7 +109,7 @@ export async function sendMessage(
       : type === 'sticker'
       ? `Sticker ${content}`
       : type === 'audio'
-      ? 'Voice message'
+      ? content || 'Voice message'
       : `📎 ${type}`;
 
   const messageData = {

@@ -5,7 +5,6 @@ import {
   deleteDocument,
   updateDocument,
   queryDocuments,
-  subscribeToQuery,
   increment,
   where,
   limit,
@@ -121,12 +120,9 @@ export async function getSuggestedUsers(
   currentUserId: string,
   followingIds: string[]
 ): Promise<User[]> {
-  const exclude = new Set([currentUserId, ...followingIds]);
-  const all = await queryDocuments<User>(Collections.USERS, [
-    where('isOnboarded', '==', true),
-    limit(30),
-  ]);
-  return all.filter((u) => !exclude.has(u.uid)).slice(0, 8);
+  void currentUserId;
+  void followingIds;
+  return [];
 }
 
 // ─── Get followed-user posts feed (Following feed) ────────────────────────────

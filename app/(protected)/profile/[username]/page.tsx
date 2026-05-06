@@ -73,19 +73,29 @@ export default function ProfilePage() {
   const router = useRouter();
 
   const [following, setFollowing] = useState(false);
+  const [followChecked, setFollowChecked] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [tab, setTab] = useState<Tab>('posts');
 
   const isOwnProfile = currentUser?.uid === profileUser?.uid;
-  const { posts, loading: postsLoading, refetch } = useUserPosts(profileUser?.uid);
+  const canViewPosts = Boolean(isOwnProfile || following);
+  const { posts, loading: postsLoading, refetch } = useUserPosts(
+    canViewPosts ? profileUser?.uid : undefined
+  );
   const { posts: saved, loading: savedLoading } = useSavedPosts(
     isOwnProfile ? currentUser?.uid : undefined
   );
 
   useEffect(() => {
+    setFollowChecked(false);
     if (currentUser && profileUser && !isOwnProfile) {
-      isFollowing(currentUser.uid, profileUser.uid).then(setFollowing);
+      isFollowing(currentUser.uid, profileUser.uid)
+        .then(setFollowing)
+        .finally(() => setFollowChecked(true));
+      return;
     }
+    setFollowChecked(true);
+    setFollowing(false);
   }, [currentUser, profileUser, isOwnProfile]);
 
   const handleFollow = async () => {
@@ -220,14 +230,28 @@ export default function ProfilePage() {
 
         {/* Stats — clickable */}
         <div className="flex gap-5">
-          <Link href={`/profile/${profileUser.username}/following`} className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
-            <span className="font-bold text-pulse-text">{profileUser.followingCount}</span>
-            <span className="text-sm text-pulse-text-muted">{t.profile.following}</span>
-          </Link>
-          <Link href={`/profile/${profileUser.username}/followers`} className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
-            <span className="font-bold text-pulse-text">{profileUser.followersCount}</span>
-            <span className="text-sm text-pulse-text-muted">{t.profile.followers}</span>
-          </Link>
+          {isOwnProfile ? (
+            <Link href={`/profile/${profileUser.username}/following`} className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+              <span className="font-bold text-pulse-text">{profileUser.followingCount}</span>
+              <span className="text-sm text-pulse-text-muted">{t.profile.following}</span>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-pulse-text">{profileUser.followingCount}</span>
+              <span className="text-sm text-pulse-text-muted">{t.profile.following}</span>
+            </div>
+          )}
+          {isOwnProfile ? (
+            <Link href={`/profile/${profileUser.username}/followers`} className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+              <span className="font-bold text-pulse-text">{profileUser.followersCount}</span>
+              <span className="text-sm text-pulse-text-muted">{t.profile.followers}</span>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-pulse-text">{profileUser.followersCount}</span>
+              <span className="text-sm text-pulse-text-muted">{t.profile.followers}</span>
+            </div>
+          )}
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-pulse-text">{profileUser.postsCount}</span>
             <span className="text-sm text-pulse-text-muted">{t.profile.posts}</span>
@@ -261,7 +285,19 @@ export default function ProfilePage() {
 
       {/* Posts / Saved */}
       <div className="space-y-4">
-        {displayLoading ? (
+        {!isOwnProfile && tab === 'posts' && !canViewPosts && followChecked ? (
+          <GlassCard className="text-center py-16">
+            <Shield className="mx-auto mb-4 h-10 w-10 text-pulse-accent/30" />
+            <p className="font-semibold text-pulse-text">
+              {dir === 'rtl' ? 'المنشورات للمتابعين فقط' : 'Posts are followers-only'}
+            </p>
+            <p className="mt-2 text-sm text-pulse-text-muted">
+              {dir === 'rtl'
+                ? 'تابع هذا المستخدم أولًا عشان تظهر منشوراته عندك.'
+                : 'Follow this user first to see their posts.'}
+            </p>
+          </GlassCard>
+        ) : displayLoading || (!followChecked && tab === 'posts') ? (
           <FeedSkeleton count={2} />
         ) : displayPosts.length === 0 ? (
           <GlassCard className="text-center py-16">

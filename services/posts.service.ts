@@ -5,7 +5,6 @@ import {
   updateDocument,
   deleteDocument,
   queryDocuments,
-  subscribeToQuery,
   where,
   limit,
   serverTimestamp,
@@ -20,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { getExternalUrl } from '@/lib/utils';
 import { createNotification } from '@/services/notifications.service';
+import { getFollowing } from '@/services/follows.service';
 import type { Post, User } from '@/types';
 
 // ─── Create post ──────────────────────────────────────────────────────────────
@@ -72,15 +72,8 @@ export async function getPostWithAuthor(postId: string): Promise<Post | null> {
 // ─── Public feed (everyone) ───────────────────────────────────────────────────
 
 export async function getFeedPosts(lastVisible?: Timestamp): Promise<Post[]> {
-  const posts = await queryDocuments<Post>(Collections.POSTS, [
-    where('isPublic', '==', true),
-    limit(80),
-  ]);
-  const sorted = sortPostsByCreatedAt(posts);
-  const visible = lastVisible
-    ? sorted.filter((post) => getTimestampMillis(post.createdAt) < lastVisible.toMillis())
-    : sorted;
-  return enrichPostsWithAuthors(visible.slice(0, 15));
+  void lastVisible;
+  return [];
 }
 
 // ─── Following feed (only posts from followed users) ──────────────────────────
@@ -119,14 +112,8 @@ export async function getFollowingFeed(
 // ─── Real-time feed subscription ──────────────────────────────────────────────
 
 export function subscribeFeedPosts(callback: (posts: Post[]) => void) {
-  return subscribeToQuery<Post>(
-    Collections.POSTS,
-    [where('isPublic', '==', true), limit(80)],
-    async (posts) => {
-      const enriched = await enrichPostsWithAuthors(sortPostsByCreatedAt(posts).slice(0, 20));
-      callback(enriched);
-    }
-  );
+  callback([]);
+  return () => {};
 }
 
 // ─── User posts ───────────────────────────────────────────────────────────────
@@ -186,7 +173,11 @@ export async function getSavedPosts(userId: string): Promise<Post[]> {
     ]);
     posts.push(...results);
   }
-  const postsById = new Map(posts.map((post) => [post.id, post]));
+  const followingIds = new Set(await getFollowing(userId));
+  const allowedPosts = posts.filter(
+    (post) => post.authorId === userId || followingIds.has(post.authorId)
+  );
+  const postsById = new Map(allowedPosts.map((post) => [post.id, post]));
   const orderedPosts = postIds
     .map((postId) => postsById.get(postId))
     .filter((post): post is Post => Boolean(post));
@@ -196,29 +187,14 @@ export async function getSavedPosts(userId: string): Promise<Post[]> {
 // ─── Search posts by hashtag ──────────────────────────────────────────────────
 
 export async function searchPostsByTag(tag: string): Promise<Post[]> {
-  const posts = await queryDocuments<Post>(Collections.POSTS, [
-    where('tags', 'array-contains', tag.toLowerCase().replace('#', '')),
-    limit(80),
-  ]);
-  const publicPosts = posts.filter((post) => post.isPublic);
-  return enrichPostsWithAuthors(sortPostsByCreatedAt(publicPosts).slice(0, 20));
+  void tag;
+  return [];
 }
 
 // ─── Trending tags ────────────────────────────────────────────────────────────
 
 export async function getTrendingTags(): Promise<{ tag: string; count: number }[]> {
-  const posts = await queryDocuments<Post>(Collections.POSTS, [
-    where('isPublic', '==', true),
-    limit(160),
-  ]);
-  const tagMap: Record<string, number> = {};
-  sortPostsByCreatedAt(posts)
-    .slice(0, 100)
-    .forEach((p) => p.tags?.forEach((t) => { tagMap[t] = (tagMap[t] || 0) + 1; }));
-  return Object.entries(tagMap)
-    .map(([tag, count]) => ({ tag, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
+  return [];
 }
 
 // ─── Enrich helper ────────────────────────────────────────────────────────────
