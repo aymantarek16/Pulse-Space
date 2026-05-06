@@ -8,6 +8,37 @@ import { Zap } from 'lucide-react';
 const SHOW_DELAY_MS = 160;
 const MIN_VISIBLE_MS = 180;
 const MAX_VISIBLE_MS = 2500;
+const VISITED_ROUTES_KEY = 'pulse:visited-routes';
+
+function getRouteKey(path: string) {
+  const cleanPath = path.split('?')[0].replace(/\/$/, '') || '/';
+  if (cleanPath.startsWith('/messages/')) return '/messages/:conversation';
+  if (cleanPath.startsWith('/profile/') && !cleanPath.endsWith('/edit')) return '/profile/:user';
+  if (cleanPath.startsWith('/spaces/') && cleanPath !== '/spaces/create') return '/spaces/:space';
+  return cleanPath;
+}
+
+function readVisitedRoutes() {
+  try {
+    const raw = window.sessionStorage.getItem(VISITED_ROUTES_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function hasVisitedRoute(path: string) {
+  return readVisitedRoutes().has(getRouteKey(path));
+}
+
+function markVisitedRoute(path: string) {
+  try {
+    const visited = readVisitedRoutes();
+    visited.add(getRouteKey(path));
+    window.sessionStorage.setItem(VISITED_ROUTES_KEY, JSON.stringify([...visited]));
+  } catch {}
+}
 
 function isModifiedClick(event: MouseEvent) {
   return event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
@@ -36,7 +67,7 @@ function shouldHandleLink(anchor: HTMLAnchorElement, event: MouseEvent) {
   const currentPath = `${window.location.pathname}${window.location.search}`;
   const targetPath = `${targetUrl.pathname}${targetUrl.search}`;
 
-  return currentPath !== targetPath;
+  return currentPath !== targetPath && !hasVisitedRoute(targetPath);
 }
 
 export function PageTransitionLoader() {
@@ -101,7 +132,10 @@ export function PageTransitionLoader() {
       show();
     };
 
-    const handlePopState = () => show();
+    const handlePopState = () => {
+      const nextPath = `${window.location.pathname}${window.location.search}`;
+      if (!hasVisitedRoute(nextPath)) show();
+    };
 
     document.addEventListener('click', handleClick, true);
     window.addEventListener('popstate', handlePopState);
@@ -113,6 +147,7 @@ export function PageTransitionLoader() {
   }, [show]);
 
   useEffect(() => {
+    markVisitedRoute(`${pathname}${window.location.search}`);
     hide();
   }, [pathname, hide]);
 

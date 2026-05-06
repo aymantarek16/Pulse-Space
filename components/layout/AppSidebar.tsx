@@ -99,12 +99,12 @@ export function AppSidebar() {
                   isActive
                     ? 'bg-pulse-accent/[0.15] text-pulse-accent border border-pulse-accent/20'
                     : isLit
-                    ? 'border border-pulse-accent/20 bg-pulse-accent/[0.10] text-pulse-accent shadow-lg shadow-pulse-accent/10'
+                    ? 'text-pulse-accent hover:bg-white/5'
                     : 'text-pulse-text-muted hover:text-pulse-text hover:bg-white/5'
                 )}
               >
                 {isLit && item.href === '/messages' && (
-                  <span className="absolute inset-0 rounded-xl bg-pulse-accent/10 animate-pulse" />
+                  <span className="absolute end-2 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-pulse-accent shadow-[0_0_14px_rgba(77,214,167,0.75)]" />
                 )}
                 {isActive && (
                   <motion.div

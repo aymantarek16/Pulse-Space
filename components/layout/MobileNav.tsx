@@ -58,13 +58,13 @@ export function MobileNav() {
                   isActive
                     ? 'text-pulse-accent'
                     : isLit
-                    ? 'text-pulse-accent'
+                    ? 'text-pulse-text-muted'
                     : 'text-pulse-text-muted'
                 )}
               >
                 <div className="relative">
                   {isLit && item.href === '/messages' && (
-                    <span className="absolute inset-[-0.45rem] rounded-2xl bg-pulse-accent/10 animate-pulse" />
+                    <span className="absolute -end-1 -top-1 h-2 w-2 rounded-full bg-pulse-accent shadow-[0_0_12px_rgba(77,214,167,0.8)]" />
                   )}
                   <Icon className="w-5 h-5" />
                   {badge > 0 && (

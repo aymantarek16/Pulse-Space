@@ -7,6 +7,7 @@ import { AppSidebar } from '@/components/layout/AppSidebar';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { VoiceCallProvider } from '@/components/calls/VoiceCallProvider';
 import { SoundAlerts } from '@/components/common/SoundAlerts';
+import { PageTransitionLoader } from '@/components/common/PageTransitionLoader';
 import { ActivityProvider } from '@/contexts/ActivityContext';
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -101,6 +102,7 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     <VoiceCallProvider>
       <ActivityProvider>
         <SoundAlerts />
+        <PageTransitionLoader />
         <div className="min-h-screen flex">
           <AppSidebar />
 
