@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
+const ROOT_AUTH_STALL_MS = 3000;
+const ROUTER_FALLBACK_MS = 450;
+
 export default function RootPage() {
   const { user, loading, initialized, authError } = useAuth();
   const router = useRouter();
@@ -15,15 +18,35 @@ export default function RootPage() {
   }, []);
 
   useEffect(() => {
+    if (initialized || authError) return;
+
+    const fallback = window.setTimeout(() => {
+      if (window.location.pathname === '/') {
+        window.location.replace('/login');
+      }
+    }, ROOT_AUTH_STALL_MS);
+
+    return () => window.clearTimeout(fallback);
+  }, [initialized, authError]);
+
+  useEffect(() => {
     if (!initialized || loading || authError) return;
 
-    if (!user) {
-      router.replace('/login');
-    } else if (!user.isOnboarded) {
-      router.replace('/onboarding');
-    } else {
-      router.replace('/home');
-    }
+    const target = !user
+      ? '/login'
+      : !user.isOnboarded
+        ? '/onboarding'
+        : '/home';
+
+    router.replace(target);
+
+    const fallback = window.setTimeout(() => {
+      if (window.location.pathname !== target) {
+        window.location.replace(target);
+      }
+    }, ROUTER_FALLBACK_MS);
+
+    return () => window.clearTimeout(fallback);
   }, [user, loading, initialized, authError, router]);
 
   if (authError) {

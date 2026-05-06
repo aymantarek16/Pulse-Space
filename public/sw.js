@@ -60,6 +60,11 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   if (!request.url.startsWith(self.location.origin)) return;
 
+  const requestUrl = new URL(request.url);
+
+  // Next.js runtime files must always come straight from the server.
+  if (requestUrl.pathname.startsWith('/_next/')) return;
+
   // API requests — network only
   if (request.url.includes('firestore') || request.url.includes('firebase')) return;
   if (request.mode === 'navigate') return;

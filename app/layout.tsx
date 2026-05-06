@@ -59,6 +59,66 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
+const devServiceWorkerCleanupScript = `
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)) return;
+
+  var reloadKey = 'pulsespace:dev-sw-cleaned';
+  var cleanup = navigator.serviceWorker.getRegistrations()
+    .then(function (registrations) {
+      return Promise.all(registrations.map(function (registration) {
+        return registration.unregister();
+      }));
+    })
+    .then(function () {
+      if (!('caches' in window)) return;
+      return caches.keys().then(function (keys) {
+        return Promise.all(keys.map(function (key) {
+          return caches.delete(key);
+        }));
+      });
+    });
+
+  cleanup.then(function () {
+    if (!sessionStorage.getItem(reloadKey)) {
+      sessionStorage.setItem(reloadKey, '1');
+      window.location.reload();
+    }
+  }).catch(function () {});
+})();
+`;
+
+const browserExtensionErrorFilterScript = `
+(function () {
+  var ignoredMessages = [
+    'A listener indicated an asynchronous response by returning true',
+    'The message channel closed before a response was received'
+  ];
+
+  function shouldIgnore(value) {
+    var message = value && value.message ? value.message : String(value || '');
+    return ignoredMessages.some(function (ignored) {
+      return message.indexOf(ignored) !== -1;
+    });
+  }
+
+  window.addEventListener('unhandledrejection', function (event) {
+    if (shouldIgnore(event.reason)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+
+  window.addEventListener('error', function (event) {
+    if (shouldIgnore(event.error || event.message)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+})();
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ar" dir="rtl" className="dark">
@@ -68,6 +128,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <script dangerouslySetInnerHTML={{ __html: browserExtensionErrorFilterScript }} />
+        {process.env.NODE_ENV !== 'production' && (
+          <script dangerouslySetInnerHTML={{ __html: devServiceWorkerCleanupScript }} />
+        )}
       </head>
       <body className={`${cairo.variable} ${plusJakarta.variable} font-sans bg-pulse-bg text-pulse-text antialiased`}>
         <LanguageProvider>

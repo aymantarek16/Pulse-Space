@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useTranslation } from '@/lib/i18n/useTranslation';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 const loginSchema = z.object({
   email: z.string().email('بريد إلكتروني غير صالح'),
@@ -26,6 +27,7 @@ type LoginFormData = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const { t } = useTranslation();
   const { locale, setLocale, dir } = useLanguage();
+  const { user, loading, initialized } = useAuth();
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState('');
@@ -55,6 +57,11 @@ export default function LoginPage() {
       setServerError(messages[code || ''] || 'حدث خطأ. حاول مرة أخرى');
     }
   };
+
+  useEffect(() => {
+    if (!initialized || loading || !user) return;
+    router.replace(user.isOnboarded ? '/home' : '/onboarding');
+  }, [initialized, loading, router, user]);
 
   const containerVariants = {
     hidden: { opacity: 0 },
