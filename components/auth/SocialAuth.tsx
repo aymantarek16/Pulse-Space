@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/Button';
 
 interface SocialAuthProps {
   label?: string;
+  buttonClassName?: string;
 }
 
-export function SocialAuth({ label }: SocialAuthProps) {
+export function SocialAuth({ label, buttonClassName }: SocialAuthProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -37,7 +38,7 @@ export function SocialAuth({ label }: SocialAuthProps) {
         size="lg"
         loading={loading}
         onClick={handleGoogle}
-        className="gap-3"
+        className={buttonClassName || 'gap-3'}
       >
         <GoogleIcon />
         <span>{label || 'Continue with Google'}</span>

@@ -77,29 +77,30 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" dir={dir}>
+    <div className="login-page" dir={dir}>
       <AuthBackground />
 
       {/* Language toggle */}
       <button
         onClick={() => setLocale(locale === 'ar' ? 'en' : 'ar')}
-        className="fixed top-4 end-4 glass px-3 py-1.5 rounded-xl text-xs text-pulse-text-muted hover:text-pulse-text transition-colors"
+        className="fixed top-4 end-4 z-50 glass px-3 py-1.5 rounded-xl text-xs text-pulse-text-muted hover:text-pulse-text transition-colors"
       >
         {locale === 'ar' ? 'EN' : 'عربي'}
       </button>
 
+      <main className="login-main">
       <motion.div
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="auth-card relative z-10"
+        className="auth-card login-card"
       >
         {/* Logo */}
-        <motion.div variants={itemVariants} className="flex items-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pulse-accent to-pulse-accent-dark flex items-center justify-center shadow-lg shadow-pulse-accent/30">
+        <motion.div variants={itemVariants} className="login-logo-row flex items-center justify-end gap-3">
+          <div className="login-logo-icon rounded-xl bg-gradient-to-br from-pulse-accent to-pulse-accent-dark flex items-center justify-center shadow-lg shadow-pulse-accent/30">
             <Zap className="w-5 h-5 text-white" />
           </div>
-          <div>
+          <div className="min-w-0 text-start">
             <h1 className="text-lg font-bold gradient-text">PulseSpace</h1>
             <p className="text-xs text-pulse-text-muted">{t.auth.welcomeBack}</p>
           </div>
@@ -107,11 +108,11 @@ export default function LoginPage() {
 
         {/* Social auth */}
         <motion.div variants={itemVariants}>
-          <SocialAuth label={t.auth.loginWithGoogle} />
+          <SocialAuth label={t.auth.loginWithGoogle} buttonClassName="login-social-button gap-3 rounded-xl text-sm" />
         </motion.div>
 
         {/* Divider */}
-        <motion.div variants={itemVariants} className="flex items-center gap-3 my-5">
+        <motion.div variants={itemVariants} className="login-divider flex items-center gap-3">
           <div className="flex-1 h-px bg-white/10" />
           <span className="text-xs text-pulse-text-muted">{t.common.or}</span>
           <div className="flex-1 h-px bg-white/10" />
@@ -121,25 +122,27 @@ export default function LoginPage() {
         <motion.form
           variants={itemVariants}
           onSubmit={handleSubmit(onSubmit)}
-          className="space-y-4"
+          className="login-form"
         >
           <Input
             label={t.auth.email}
             type="email"
             placeholder="hello@example.com"
             icon={<Mail className="w-4 h-4" />}
+            className="login-input"
             error={errors.email?.message}
             autoComplete="email"
             {...register('email')}
           />
 
-          <div>
+          <div className="login-password-field">
             <Input
               label={t.auth.password}
               type={showPassword ? 'text' : 'password'}
               placeholder="••••••••"
               icon={<Lock className="w-4 h-4" />}
               iconPosition="left"
+              className="login-input pe-12"
               error={errors.password?.message}
               autoComplete="current-password"
               {...register('password')}
@@ -147,9 +150,11 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute end-3 top-1/2 -translate-y-1/2 text-pulse-text-muted hover:text-pulse-text transition-colors"
+              className="login-password-toggle"
               aria-label="Toggle password"
-            />
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
           </div>
 
           {/* Forgot password */}
@@ -178,7 +183,7 @@ export default function LoginPage() {
             size="lg"
             fullWidth
             loading={isSubmitting}
-            className="mt-2"
+            className="login-submit mt-1 rounded-xl text-base"
           >
             {t.auth.login}
           </Button>
@@ -187,7 +192,7 @@ export default function LoginPage() {
         {/* Register link */}
         <motion.p
           variants={itemVariants}
-          className="text-center text-sm text-pulse-text-muted mt-6"
+          className="login-register text-center text-sm text-pulse-text-muted"
         >
           {t.auth.noAccount}{' '}
           <Link
@@ -203,13 +208,13 @@ export default function LoginPage() {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.55, duration: 0.35 }}
-        className="fixed inset-x-4 bottom-4 z-10"
+        className="login-footer"
       >
-        <div className="mx-auto flex w-fit max-w-full items-center gap-2 rounded-2xl border border-white/10 bg-pulse-surface/75 px-4 py-2 text-xs text-pulse-text-muted shadow-2xl shadow-black/20 backdrop-blur-xl">
-          <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl border border-pulse-accent/20 bg-pulse-accent/10 text-pulse-accent">
+        <div className="login-footer-inner">
+          <span className="login-footer-icon">
             <Code2 className="h-3.5 w-3.5" />
           </span>
-          <span className="flex min-w-0 flex-wrap items-center justify-center gap-1 leading-5">
+          <span className="login-footer-copy">
             <Copyright className="h-3.5 w-3.5 flex-shrink-0 text-pulse-accent/80" />
             <span>{currentYear}</span>
             <span>
@@ -221,6 +226,7 @@ export default function LoginPage() {
           </span>
         </div>
       </motion.footer>
+      </main>
     </div>
   );
 }
