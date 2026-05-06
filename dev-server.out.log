@@ -1,0 +1,67 @@
+
+> pulsespace@1.0.0 dev
+> next dev --hostname 127.0.0.1 --port 3000
+
+  ▲ Next.js 14.2.5
+  - Local:        http://127.0.0.1:3000
+  - Network:      http://127.0.0.1:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 13s
+ ○ Compiling /home ...
+ ✓ Compiled /home in 19.8s (1625 modules)
+ GET /home 200 in 23006ms
+ ✓ Compiled in 3.6s (753 modules)
+ ○ Compiling /onboarding ...
+ ✓ Compiled /onboarding in 5.8s (1573 modules)
+ GET /onboarding 200 in 7799ms
+ ○ Compiling /login ...
+ ✓ Compiled /login in 1500ms (1587 modules)
+ GET /login 200 in 3249ms
+ ✓ Compiled in 4.7s (765 modules)
+ ✓ Compiled in 7.9s (765 modules)
+ ✓ Compiled in 2.3s (779 modules)
+ ✓ Compiled in 2s (779 modules)
+ ✓ Compiled in 4.3s (765 modules)
+ ✓ Compiled in 876ms (779 modules)
+ ✓ Compiled in 3.4s (779 modules)
+ ○ Compiling /onboarding ...
+ ✓ Compiled /onboarding in 2.4s (814 modules)
+ GET /onboarding 200 in 2814ms
+ GET /onboarding 200 in 5001ms
+ ○ Compiling /home ...
+ ✓ Compiled /home in 2.3s (894 modules)
+ GET /home 200 in 4522ms
+ ○ Compiling /messages ...
+ ✓ Compiled /messages in 6.8s (1679 modules)
+ ✓ Compiled in 10.4s (1679 modules)
+ GET /messages 200 in 8770ms
+ ✓ Compiled in 3.4s (1693 modules)
+ GET /onboarding 200 in 628ms
+ ✓ Compiled in 1301ms (1679 modules)
+ GET /messages 200 in 297ms
+ GET /onboarding 200 in 147ms
+ ✓ Compiled in 1843ms (1679 modules)
+ ✓ Compiled in 7.4s (1693 modules)
+ GET /messages 200 in 790ms
+ ○ Compiling /messages/[conversationId] ...
+ ✓ Compiled /messages/[conversationId] in 7.4s (1729 modules)
+ ✓ Compiled in 1181ms (805 modules)
+ ✓ Compiled in 4.8s (1729 modules)
+ ✓ Compiled in 3.1s (1729 modules)
+ ○ Compiling /profile/[username] ...
+ ✓ Compiled /profile/[username] in 5.5s (1749 modules)
+ ○ Compiling /profile/edit ...
+ ✓ Compiled /profile/edit in 4.3s (1757 modules)
+ ✓ Compiled in 1314ms (817 modules)
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 8.1s (1752 modules)
+ GET /_next/static/webpack/885e078821bf958d.webpack.hot-update.json 404 in 18879ms
+ ○ Compiling / ...
+ ✓ Compiled / in 24.5s (1758 modules)
+ GET / 200 in 14681ms
+ GET / 200 in 2391ms
+ GET /_next/static/webpack/885e078821bf958d.webpack.hot-update.json 404 in 16186ms
+ GET / 200 in 517ms
+[?25h

@@ -1,0 +1,185 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base Styles ──────────────────────────────────────────────────────────── */
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: #09130F;
+    background-image:
+      linear-gradient(120deg, rgba(77, 214, 167, 0.085), transparent 28%, transparent 70%, rgba(217, 154, 66, 0.075)),
+      repeating-linear-gradient(90deg, rgba(158, 179, 168, 0.05) 0 1px, transparent 1px 76px),
+      repeating-linear-gradient(0deg, rgba(158, 179, 168, 0.035) 0 1px, transparent 1px 76px),
+      repeating-linear-gradient(135deg, transparent 0 20px, rgba(217, 154, 66, 0.028) 20px 21px, transparent 21px 58px);
+    background-size: 230% 230%, 76px 76px, 76px 76px, 190px 190px;
+    background-position: 0 0, 0 0, 0 0, 0 0;
+    background-attachment: fixed;
+    color: #F4FBF7;
+    font-family: var(--font-cairo), var(--font-plus-jakarta), sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    animation: none;
+  }
+
+  /* RTL Support */
+  [dir="rtl"] {
+    font-family: var(--font-cairo), sans-serif;
+  }
+
+  [dir="ltr"] {
+    font-family: var(--font-plus-jakarta), sans-serif;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #14231D;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #263B34;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #4DD6A7;
+  }
+
+  /* Selection */
+  ::selection {
+    background: rgba(77, 214, 167, 0.25);
+    color: #F4FBF7;
+  }
+}
+
+/* ─── Component Layer ──────────────────────────────────────────────────────── */
+
+@layer components {
+  /* Glass panel */
+  .glass {
+    @apply bg-white/5 backdrop-blur-[20px] border border-white/10;
+  }
+
+  .glass-hover {
+    @apply glass hover:bg-white/[0.08] hover:border-white/[0.15] transition-all duration-300;
+  }
+
+  /* Pulse gradient text */
+  .gradient-text {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-pulse-accent via-emerald-200 to-pulse-accent-dark;
+  }
+
+  /* Glow effect */
+  .glow {
+    box-shadow: 0 0 20px rgba(77, 214, 167, 0.2);
+  }
+
+  .glow-hover:hover {
+    box-shadow: 0 0 30px rgba(217, 154, 66, 0.32);
+  }
+
+  /* Auth card */
+  .auth-card {
+    @apply glass rounded-3xl p-8 w-full max-w-md mx-auto;
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  /* Profile cover */
+  .cover-gradient {
+    background: linear-gradient(135deg, #14231D 0%, #09130F 52%, #2A2417 100%);
+  }
+}
+
+/* ─── Utility Layer ────────────────────────────────────────────────────────── */
+
+@layer utilities {
+  /* Animations */
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  @keyframes pageProgress {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(360%); }
+  }
+
+  @keyframes bodyPatternDrift {
+    0% {
+      background-position: 0 0, 0 0, 0 0, 0 0;
+    }
+    50% {
+      background-position: 45% 55%, 36px 0, 0 36px, 90px 90px;
+    }
+    100% {
+      background-position: 100% 100%, 72px 0, 0 72px, 180px 180px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body {
+      animation: none;
+      background-position: 40% 45%, 0 0, 0 0, 0 0;
+    }
+  }
+
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.04),
+      transparent
+    );
+    animation: shimmer 1.5s infinite;
+  }
+
+  /* Fade animations */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-fade-up {
+    animation: fadeInUp 0.4s ease-out both;
+  }
+
+  .animate-delay-100 { animation-delay: 100ms; }
+  .animate-delay-200 { animation-delay: 200ms; }
+  .animate-delay-300 { animation-delay: 300ms; }
+  .animate-delay-400 { animation-delay: 400ms; }
+  .animate-delay-500 { animation-delay: 500ms; }
+
+  /* Hide scrollbar but allow scroll */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
