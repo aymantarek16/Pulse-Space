@@ -13,7 +13,7 @@ import { createSpace } from '@/services/spaces.service';
 import { Input, Textarea } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { uploadImageFile, validateImageFile } from '@/lib/firebase/storage';
+import { imageFileToDataUrl, uploadImageFile, validateImageFile } from '@/lib/firebase/storage';
 import { cn } from '@/lib/utils';
 
 const schema = z.object({
@@ -24,7 +24,8 @@ const schema = z.object({
 });
 
 type FormData = z.infer<typeof schema>;
-const SPACE_IMAGE_UPLOAD_TIMEOUT_MS = 60000;
+const SPACE_IMAGE_UPLOAD_TIMEOUT_MS = 14000;
+const SPACE_IMAGE_STALL_TIMEOUT_MS = 3500;
 
 export default function CreateSpacePage() {
   const { user } = useAuth();
@@ -118,16 +119,10 @@ export default function CreateSpacePage() {
 
       const [uploadedAvatarUrl, uploadedCoverUrl] = await Promise.all([
         avatarFile
-          ? uploadImageFile(avatarFile, `uploads/${user.uid}/spaces/avatars`, {
-              timeoutMs: SPACE_IMAGE_UPLOAD_TIMEOUT_MS,
-              onProgress: setAvatarUploadProgress,
-            })
+          ? uploadSpaceImage(avatarFile, 'avatar', `uploads/${user.uid}/spaces/avatars`)
           : Promise.resolve(undefined),
         coverFile
-          ? uploadImageFile(coverFile, `uploads/${user.uid}/spaces/covers`, {
-              timeoutMs: SPACE_IMAGE_UPLOAD_TIMEOUT_MS,
-              onProgress: setCoverUploadProgress,
-            })
+          ? uploadSpaceImage(coverFile, 'cover', `uploads/${user.uid}/spaces/covers`)
           : Promise.resolve(undefined),
       ]);
 
@@ -153,6 +148,37 @@ export default function CreateSpacePage() {
     } finally {
       setAvatarUploadProgress(null);
       setCoverUploadProgress(null);
+    }
+  };
+
+  const uploadSpaceImage = async (
+    file: File,
+    kind: 'avatar' | 'cover',
+    folder: string
+  ) => {
+    const setProgress = kind === 'avatar' ? setAvatarUploadProgress : setCoverUploadProgress;
+
+    try {
+      return await uploadImageFile(file, folder, {
+        timeoutMs: SPACE_IMAGE_UPLOAD_TIMEOUT_MS,
+        stallTimeoutMs: SPACE_IMAGE_STALL_TIMEOUT_MS,
+        maxAttempts: 1,
+        onProgress: setProgress,
+      });
+    } catch (error) {
+      console.warn('Firebase Storage space upload failed, using optimized fallback:', error);
+      setSubmitStatus(
+        dir === 'rtl'
+          ? 'Storage لا يستجيب، جاري حفظ نسخة مضغوطة...'
+          : 'Storage is not responding, saving an optimized copy...'
+      );
+      const dataUrl = await imageFileToDataUrl(file, {
+        maxDimension: kind === 'avatar' ? 480 : 1200,
+        maxDataUrlLength: kind === 'avatar' ? 220000 : 460000,
+        quality: kind === 'avatar' ? 0.84 : 0.76,
+      });
+      setProgress(100);
+      return dataUrl;
     }
   };
 

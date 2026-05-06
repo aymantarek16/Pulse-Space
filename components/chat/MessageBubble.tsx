@@ -195,7 +195,7 @@ export function MessageBubble({
     setReactionMap(message.reactions || {});
     const unsubscribe = subscribeToMessageReactions(message.id, setReactionMap);
     return () => unsubscribe();
-  }, [message.id, message.reactions]);
+  }, [message.id]);
 
   const handleDelete = async () => {
     if (!isOwn) return;
@@ -211,15 +211,20 @@ export function MessageBubble({
     if (!user || reacting) return;
     setReacting(true);
     setReactionOpen(false);
+    const previousReactionMap = { ...reactionMap };
+    const nextReaction = currentReaction === emoji ? null : emoji;
+    setReactionMap((current) => {
+      const next = { ...current };
+      if (nextReaction) next[user.uid] = nextReaction;
+      else delete next[user.uid];
+      return next;
+    });
 
     try {
-      await setMessageReaction(
-        user.uid,
-        message.id,
-        currentReaction === emoji ? null : emoji
-      );
+      await setMessageReaction(user.uid, message.id, nextReaction);
     } catch (error) {
       console.error('Could not react to message:', error);
+      setReactionMap(previousReactionMap);
     } finally {
       setReacting(false);
     }

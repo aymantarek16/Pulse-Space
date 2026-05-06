@@ -4,7 +4,6 @@ import {
   subscribeToDocument,
   subscribeToQuery,
   where,
-  limit,
   serverTimestamp,
   arrayUnion,
   db,
@@ -83,9 +82,7 @@ export function subscribeToIncomingVoiceCalls(
     Collections.CALLS,
     [
       where('calleeId', '==', userId),
-      where('status', '==', 'ringing'),
-      limit(1),
     ],
-    callback
+    (calls) => callback(calls.filter((call) => call.status === 'ringing').slice(0, 1))
   );
 }

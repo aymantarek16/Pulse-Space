@@ -5,8 +5,6 @@ import {
   queryDocuments,
   subscribeToQuery,
   where,
-  orderBy,
-  limit,
   serverTimestamp,
   db,
 } from '@/lib/firebase/firestore';
@@ -42,12 +40,11 @@ export async function markAsRead(notificationId: string): Promise<void> {
 export async function markAllAsRead(userId: string): Promise<void> {
   const unread = await queryDocuments<Notification>(Collections.NOTIFICATIONS, [
     where('recipientId', '==', userId),
-    where('isRead', '==', false),
-    limit(50),
   ]);
-  if (!unread.length) return;
+  const unreadForUser = unread.filter((n) => !n.isRead).slice(0, 50);
+  if (!unreadForUser.length) return;
   const batch = writeBatch(db);
-  unread.forEach((n) => {
+  unreadForUser.forEach((n) => {
     batch.update(doc(db, Collections.NOTIFICATIONS, n.id), { isRead: true });
   });
   await batch.commit();
@@ -63,11 +60,10 @@ export function subscribeToNotifications(
     Collections.NOTIFICATIONS,
     [
       where('recipientId', '==', userId),
-      orderBy('createdAt', 'desc'),
-      limit(40),
     ],
     async (notifications) => {
-      callback(await enrichNotificationsWithSenders(notifications));
+      const sorted = sortNotificationsByCreatedAt(notifications).slice(0, 40);
+      callback(await enrichNotificationsWithSenders(sorted));
     }
   );
 }
@@ -77,10 +73,8 @@ export function subscribeToNotifications(
 export async function getUnreadCount(userId: string): Promise<number> {
   const items = await queryDocuments<Notification>(Collections.NOTIFICATIONS, [
     where('recipientId', '==', userId),
-    where('isRead', '==', false),
-    limit(99),
   ]);
-  return items.length;
+  return items.filter((item) => !item.isRead).length;
 }
 
 // ─── Delete notification ──────────────────────────────────────────────────────
@@ -108,4 +102,22 @@ async function enrichNotificationsWithSenders(
     ...notification,
     sender: senders[notification.senderId],
   }));
+}
+
+function sortNotificationsByCreatedAt(notifications: Notification[]): Notification[] {
+  return [...notifications].sort(
+    (a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt)
+  );
+}
+
+function getTimestampMillis(value: unknown): number {
+  if (!value) return 0;
+  if (typeof (value as { toMillis?: () => number }).toMillis === 'function') {
+    return (value as { toMillis: () => number }).toMillis();
+  }
+  if (typeof (value as { seconds?: number }).seconds === 'number') {
+    return (value as { seconds: number }).seconds * 1000;
+  }
+  if (value instanceof Date) return value.getTime();
+  return 0;
 }

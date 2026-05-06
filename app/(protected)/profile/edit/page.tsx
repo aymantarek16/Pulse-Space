@@ -218,6 +218,7 @@ export default function EditProfilePage() {
       return await uploadImageFile(file, folder, {
         timeoutMs: PROFILE_IMAGE_UPLOAD_TIMEOUT_MS,
         stallTimeoutMs: PROFILE_IMAGE_STALL_TIMEOUT_MS,
+        maxAttempts: 1,
         onProgress: setProgress,
       });
     } catch (error) {
@@ -229,7 +230,7 @@ export default function EditProfilePage() {
       );
       const dataUrl = await imageFileToDataUrl(file, {
         maxDimension: kind === 'avatar' ? 520 : 1280,
-        maxDataUrlLength: kind === 'avatar' ? 420000 : 780000,
+        maxDataUrlLength: kind === 'avatar' ? 260000 : 520000,
         quality: kind === 'avatar' ? 0.84 : 0.78,
       });
       setProgress(100);

@@ -7,8 +7,6 @@ import {
   queryDocuments,
   subscribeToQuery,
   where,
-  orderBy,
-  limit,
   serverTimestamp,
   increment,
   db,
@@ -163,8 +161,6 @@ export async function markConversationRead(
   // Get unread messages and mark them
   const unread = await queryDocuments<Message>(Collections.MESSAGES, [
     where('conversationId', '==', conversationId),
-    orderBy('createdAt', 'desc'),
-    limit(50),
   ]);
   const unreadForUser = unread.filter(
     (m) => m.senderId !== userId && !m.readBy?.includes(userId)
@@ -190,10 +186,8 @@ export async function markConversationRead(
 export async function getUserConversations(userId: string): Promise<Conversation[]> {
   const convs = await queryDocuments<Conversation>(Collections.CONVERSATIONS, [
     where('participantIds', 'array-contains', userId),
-    orderBy('lastMessageAt', 'desc'),
-    limit(30),
   ]);
-  return enrichConversationsWithParticipants(convs, userId);
+  return enrichConversationsWithParticipants(sortConversationsByLastMessageAt(convs).slice(0, 30), userId);
 }
 
 // ─── Real-time conversations ──────────────────────────────────────────────────
@@ -206,11 +200,12 @@ export function subscribeToConversations(
     Collections.CONVERSATIONS,
     [
       where('participantIds', 'array-contains', userId),
-      orderBy('lastMessageAt', 'desc'),
-      limit(30),
     ],
     async (convs) => {
-      const enriched = await enrichConversationsWithParticipants(convs, userId);
+      const enriched = await enrichConversationsWithParticipants(
+        sortConversationsByLastMessageAt(convs).slice(0, 30),
+        userId
+      );
       callback(enriched);
     }
   );
@@ -226,11 +221,10 @@ export function subscribeToMessages(
     Collections.MESSAGES,
     [
       where('conversationId', '==', conversationId),
-      orderBy('createdAt', 'asc'),
-      limit(100),
     ],
     async (messages) => {
-      const enriched = await enrichMessagesWithSenders(messages);
+      const orderedMessages = sortMessagesByCreatedAt(messages).slice(-100);
+      const enriched = await enrichMessagesWithSenders(orderedMessages);
       callback(enriched);
     }
   );
@@ -244,10 +238,8 @@ export async function getUnreadCount(
 ): Promise<number> {
   const msgs = await queryDocuments<Message>(Collections.MESSAGES, [
     where('conversationId', '==', conversationId),
-    orderBy('createdAt', 'desc'),
-    limit(50),
   ]);
-  return msgs.filter((m) => !m.readBy?.includes(userId)).length;
+  return msgs.filter((m) => m.senderId !== userId && !m.readBy?.includes(userId)).length;
 }
 
 // ─── Delete message ───────────────────────────────────────────────────────────
@@ -360,4 +352,28 @@ async function enrichMessagesWithSenders(messages: Message[]): Promise<Message[]
     })
   );
   return messages.map((m) => ({ ...m, sender: senders[m.senderId] }));
+}
+
+function sortMessagesByCreatedAt(messages: Message[]): Message[] {
+  return [...messages].sort(
+    (a, b) => getTimestampMillis(a.createdAt) - getTimestampMillis(b.createdAt)
+  );
+}
+
+function sortConversationsByLastMessageAt(convs: Conversation[]): Conversation[] {
+  return [...convs].sort(
+    (a, b) => getTimestampMillis(b.lastMessageAt) - getTimestampMillis(a.lastMessageAt)
+  );
+}
+
+function getTimestampMillis(value: unknown): number {
+  if (!value) return 0;
+  if (typeof (value as { toMillis?: () => number }).toMillis === 'function') {
+    return (value as { toMillis: () => number }).toMillis();
+  }
+  if (typeof (value as { seconds?: number }).seconds === 'number') {
+    return (value as { seconds: number }).seconds * 1000;
+  }
+  if (value instanceof Date) return value.getTime();
+  return 0;
 }

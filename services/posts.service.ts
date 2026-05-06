@@ -7,9 +7,7 @@ import {
   queryDocuments,
   subscribeToQuery,
   where,
-  orderBy,
   limit,
-  startAfter,
   serverTimestamp,
   increment,
   db,
@@ -19,8 +17,6 @@ import {
   addDoc,
   documentId,
   Timestamp,
-  query,
-  getDocs,
 } from 'firebase/firestore';
 import { getExternalUrl } from '@/lib/utils';
 import { createNotification } from '@/services/notifications.service';
@@ -76,14 +72,15 @@ export async function getPostWithAuthor(postId: string): Promise<Post | null> {
 // ─── Public feed (everyone) ───────────────────────────────────────────────────
 
 export async function getFeedPosts(lastVisible?: Timestamp): Promise<Post[]> {
-  const constraints: any[] = [
+  const posts = await queryDocuments<Post>(Collections.POSTS, [
     where('isPublic', '==', true),
-    orderBy('createdAt', 'desc'),
-    limit(15),
-  ];
-  if (lastVisible) constraints.push(startAfter(lastVisible));
-  const posts = await queryDocuments<Post>(Collections.POSTS, constraints);
-  return enrichPostsWithAuthors(posts);
+    limit(80),
+  ]);
+  const sorted = sortPostsByCreatedAt(posts);
+  const visible = lastVisible
+    ? sorted.filter((post) => getTimestampMillis(post.createdAt) < lastVisible.toMillis())
+    : sorted;
+  return enrichPostsWithAuthors(visible.slice(0, 15));
 }
 
 // ─── Following feed (only posts from followed users) ──────────────────────────
@@ -105,21 +102,18 @@ export async function getFollowingFeed(
     chunks.map(async (chunk) => {
       const posts = await queryDocuments<Post>(Collections.POSTS, [
         where('authorId', 'in', chunk),
-        where('isPublic', '==', true),
-        orderBy('createdAt', 'desc'),
-        limit(20),
+        limit(60),
       ]);
-      allPosts.push(...posts);
+      allPosts.push(...posts.filter((post) => post.isPublic));
     })
   );
 
-  allPosts.sort((a, b) => {
-    const aTime = (a.createdAt as any)?.toMillis?.() || 0;
-    const bTime = (b.createdAt as any)?.toMillis?.() || 0;
-    return bTime - aTime;
-  });
+  const sorted = sortPostsByCreatedAt(allPosts);
+  const visible = lastVisible
+    ? sorted.filter((post) => getTimestampMillis(post.createdAt) < lastVisible.toMillis())
+    : sorted;
 
-  return enrichPostsWithAuthors(allPosts.slice(0, 20));
+  return enrichPostsWithAuthors(visible.slice(0, 20));
 }
 
 // ─── Real-time feed subscription ──────────────────────────────────────────────
@@ -127,9 +121,9 @@ export async function getFollowingFeed(
 export function subscribeFeedPosts(callback: (posts: Post[]) => void) {
   return subscribeToQuery<Post>(
     Collections.POSTS,
-    [where('isPublic', '==', true), orderBy('createdAt', 'desc'), limit(20)],
+    [where('isPublic', '==', true), limit(80)],
     async (posts) => {
-      const enriched = await enrichPostsWithAuthors(posts);
+      const enriched = await enrichPostsWithAuthors(sortPostsByCreatedAt(posts).slice(0, 20));
       callback(enriched);
     }
   );
@@ -140,10 +134,9 @@ export function subscribeFeedPosts(callback: (posts: Post[]) => void) {
 export async function getUserPosts(userId: string): Promise<Post[]> {
   const posts = await queryDocuments<Post>(Collections.POSTS, [
     where('authorId', '==', userId),
-    orderBy('createdAt', 'desc'),
-    limit(20),
+    limit(80),
   ]);
-  return enrichPostsWithAuthors(posts);
+  return enrichPostsWithAuthors(sortPostsByCreatedAt(posts).slice(0, 20));
 }
 
 // ─── Delete post ──────────────────────────────────────────────────────────────
@@ -178,10 +171,13 @@ export async function isPostSaved(userId: string, postId: string): Promise<boole
 export async function getSavedPosts(userId: string): Promise<Post[]> {
   const saved = await queryDocuments<{ postId: string; savedAt: Timestamp }>(
     Collections.SAVED_POSTS,
-    [where('userId', '==', userId), orderBy('savedAt', 'desc'), limit(30)]
+    [where('userId', '==', userId), limit(80)]
   );
   if (!saved.length) return [];
-  const postIds = saved.map((s) => s.postId);
+  const sortedSaved = [...saved]
+    .sort((a, b) => getTimestampMillis(b.savedAt) - getTimestampMillis(a.savedAt))
+    .slice(0, 30);
+  const postIds = sortedSaved.map((s) => s.postId);
   const posts: Post[] = [];
   for (let i = 0; i < postIds.length; i += 10) {
     const batch = postIds.slice(i, i + 10);
@@ -190,7 +186,11 @@ export async function getSavedPosts(userId: string): Promise<Post[]> {
     ]);
     posts.push(...results);
   }
-  return enrichPostsWithAuthors(posts);
+  const postsById = new Map(posts.map((post) => [post.id, post]));
+  const orderedPosts = postIds
+    .map((postId) => postsById.get(postId))
+    .filter((post): post is Post => Boolean(post));
+  return enrichPostsWithAuthors(orderedPosts);
 }
 
 // ─── Search posts by hashtag ──────────────────────────────────────────────────
@@ -198,11 +198,10 @@ export async function getSavedPosts(userId: string): Promise<Post[]> {
 export async function searchPostsByTag(tag: string): Promise<Post[]> {
   const posts = await queryDocuments<Post>(Collections.POSTS, [
     where('tags', 'array-contains', tag.toLowerCase().replace('#', '')),
-    where('isPublic', '==', true),
-    orderBy('createdAt', 'desc'),
-    limit(20),
+    limit(80),
   ]);
-  return enrichPostsWithAuthors(posts);
+  const publicPosts = posts.filter((post) => post.isPublic);
+  return enrichPostsWithAuthors(sortPostsByCreatedAt(publicPosts).slice(0, 20));
 }
 
 // ─── Trending tags ────────────────────────────────────────────────────────────
@@ -210,11 +209,12 @@ export async function searchPostsByTag(tag: string): Promise<Post[]> {
 export async function getTrendingTags(): Promise<{ tag: string; count: number }[]> {
   const posts = await queryDocuments<Post>(Collections.POSTS, [
     where('isPublic', '==', true),
-    orderBy('createdAt', 'desc'),
-    limit(100),
+    limit(160),
   ]);
   const tagMap: Record<string, number> = {};
-  posts.forEach((p) => p.tags?.forEach((t) => { tagMap[t] = (tagMap[t] || 0) + 1; }));
+  sortPostsByCreatedAt(posts)
+    .slice(0, 100)
+    .forEach((p) => p.tags?.forEach((t) => { tagMap[t] = (tagMap[t] || 0) + 1; }));
   return Object.entries(tagMap)
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => b.count - a.count)
@@ -234,6 +234,24 @@ async function enrichPostsWithAuthors(posts: Post[]): Promise<Post[]> {
     })
   );
   return posts.map((post) => ({ ...post, author: authors[post.authorId] }));
+}
+
+function sortPostsByCreatedAt(posts: Post[]): Post[] {
+  return [...posts].sort(
+    (a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt)
+  );
+}
+
+function getTimestampMillis(value: unknown): number {
+  if (!value) return 0;
+  if (typeof (value as { toMillis?: () => number }).toMillis === 'function') {
+    return (value as { toMillis: () => number }).toMillis();
+  }
+  if (typeof (value as { seconds?: number }).seconds === 'number') {
+    return (value as { seconds: number }).seconds * 1000;
+  }
+  if (value instanceof Date) return value.getTime();
+  return 0;
 }
 
 function extractHashtags(content: string): string[] {
