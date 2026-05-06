@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
-import { Mail, Lock, Eye, EyeOff, Zap } from 'lucide-react';
+import { Code2, Copyright, Mail, Lock, Eye, EyeOff, Zap } from 'lucide-react';
 import { loginWithEmail } from '@/lib/firebase/auth';
 import { AuthBackground } from '@/components/auth/AuthBackground';
 import { SocialAuth } from '@/components/auth/SocialAuth';
@@ -29,6 +29,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState('');
+  const currentYear = new Date().getFullYear();
 
   const {
     register,
@@ -84,7 +85,7 @@ export default function LoginPage() {
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="auth-card"
+        className="auth-card relative z-10"
       >
         {/* Logo */}
         <motion.div variants={itemVariants} className="flex items-center gap-3 mb-8">
@@ -190,6 +191,29 @@ export default function LoginPage() {
           </Link>
         </motion.p>
       </motion.div>
+
+      <motion.footer
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.55, duration: 0.35 }}
+        className="fixed inset-x-4 bottom-4 z-10"
+      >
+        <div className="mx-auto flex w-fit max-w-full items-center gap-2 rounded-2xl border border-white/10 bg-pulse-surface/75 px-4 py-2 text-xs text-pulse-text-muted shadow-2xl shadow-black/20 backdrop-blur-xl">
+          <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-xl border border-pulse-accent/20 bg-pulse-accent/10 text-pulse-accent">
+            <Code2 className="h-3.5 w-3.5" />
+          </span>
+          <span className="flex min-w-0 flex-wrap items-center justify-center gap-1 leading-5">
+            <Copyright className="h-3.5 w-3.5 flex-shrink-0 text-pulse-accent/80" />
+            <span>{currentYear}</span>
+            <span>
+              {dir === 'rtl' ? 'جميع الحقوق محفوظة' : 'All rights reserved'}
+            </span>
+            <span className="text-pulse-text-muted/50">·</span>
+            <span>{dir === 'rtl' ? 'تطوير' : 'Developed by'}</span>
+            <span className="font-semibold text-pulse-accent">Ayman Tarek</span>
+          </span>
+        </div>
+      </motion.footer>
     </div>
   );
 }
